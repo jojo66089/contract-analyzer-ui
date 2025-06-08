@@ -1,6 +1,29 @@
 import { Buffer } from "buffer";
 // Use require for pdf-parse since it doesn't have proper TypeScript definitions
 // We use dynamic import to avoid issues with server-side rendering
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Create mock test files directory to prevent pdf-parse from failing
+try {
+  // Create test directory structure if it doesn't exist
+  const testDir = path.join(process.cwd(), 'test', 'data');
+  if (!fs.existsSync(path.join(process.cwd(), 'test'))) {
+    fs.mkdirSync(path.join(process.cwd(), 'test'));
+  }
+  if (!fs.existsSync(testDir)) {
+    fs.mkdirSync(testDir);
+  }
+  
+  // Create an empty test file that pdf-parse tries to access
+  const testFilePath = path.join(testDir, '05-versions-space.pdf');
+  if (!fs.existsSync(testFilePath)) {
+    fs.writeFileSync(testFilePath, Buffer.from([]));
+    console.log('Created empty test PDF file for pdf-parse compatibility');
+  }
+} catch (err) {
+  console.warn('Could not create test file directory, but will continue:', err);
+}
 
 /**
  * Clean PDF text by removing binary data and object references
