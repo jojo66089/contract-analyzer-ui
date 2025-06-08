@@ -276,41 +276,52 @@ async function extractTextFromPdfAdvanced(buffer: Buffer): Promise<string> {
 /**
  * This is a complete replacement for pdf-parse that doesn't rely on file system access
  * It patches the functionality to avoid the dependency on test files
+ * This function only runs on the server side
  */
 async function patchedPdfParse(pdfBuffer: Buffer): Promise<{ text: string, numpages?: number }> {
   console.log('patchedPdfParse - Using patched pdf-parse implementation');
   
   try {
-    // Import the PDF.js library (already a dependency of pdf-parse)
-    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf');
-    
-    // Load the PDF document
-    const pdf = await pdfjsLib.getDocument({
-      data: pdfBuffer,
-      // Use a proper DocumentInitParameters object
-      disableStream: true,
-      disableAutoFetch: true
-    }).promise;
-    
-    console.log(`patchedPdfParse - PDF loaded successfully, pages: ${pdf.numPages}`);
-    
-    // Extract text from all pages
-    let text = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items
-        .map((item: any) => 'str' in item ? item.str : '')
-        .join(' ');
-      text += pageText + '\n\n';
+    // Only use PDF.js in a server environment
+    if (typeof window === 'undefined') {
+      // Import the PDF.js library (already a dependency of pdf-parse)
+      const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf');
+      
+      // Load the PDF document
+      const pdf = await pdfjsLib.getDocument({
+        data: pdfBuffer,
+        disableStream: true,
+        disableAutoFetch: true
+      }).promise;
+      
+      console.log(`patchedPdfParse - PDF loaded successfully, pages: ${pdf.numPages}`);
+      
+      // Extract text from all pages
+      let text = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items
+          .map((item: any) => 'str' in item ? item.str : '')
+          .join(' ');
+        text += pageText + '\n\n';
+      }
+      
+      console.log(`patchedPdfParse - Extracted text from ${pdf.numPages} pages, text length: ${text.length}`);
+      
+      return {
+        text,
+        numpages: pdf.numPages
+      };
+    } else {
+      // In browser environments, skip PDF.js and use our fallback
+      console.log('patchedPdfParse - Running in browser, using fallback extraction');
+      const extractedText = await extractTextFromPdfAdvanced(pdfBuffer);
+      return {
+        text: extractedText,
+        numpages: 1 // Assume single page as we can't determine actual page count
+      };
     }
-    
-    console.log(`patchedPdfParse - Extracted text from ${pdf.numPages} pages, text length: ${text.length}`);
-    
-    return {
-      text,
-      numpages: pdf.numPages
-    };
   } catch (error) {
     console.error('patchedPdfParse - Error:', error);
     
@@ -353,6 +364,7 @@ async function safePdfParse(buffer: Buffer): Promise<string> {
 
 /**
  * Parse a file and extract its text content
+ * This function is designed to work in both server and client environments
  */
 export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Promise<string> {
   console.log('parseFile - Starting with mimetype:', mimetype, 'buffer size:', file.length);
@@ -409,16 +421,20 @@ export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Pr
     ) {
       console.log('parseFile - Processing Word document');
       
-      // For Word documents, use mammoth if available
-      try {
-        const mammoth = await import('mammoth');
-        const buffer = Buffer.isBuffer(file) ? file : Buffer.from(file);
-        const { value } = await mammoth.extractRawText({ buffer });
-        console.log('parseFile - Word document parsing successful, text length:', value.length);
-        return value.trim();
-      } catch (error) {
-        console.error('parseFile - DOCX parsing error:', error);
-        throw new Error(`Failed to extract text from Word document: ${error instanceof Error ? error.message : String(error)}`);
+      // For Word documents, use mammoth if available - only on server
+      if (typeof window === 'undefined') {
+        try {
+          const mammoth = await import('mammoth');
+          const buffer = Buffer.isBuffer(file) ? file : Buffer.from(file);
+          const { value } = await mammoth.extractRawText({ buffer });
+          console.log('parseFile - Word document parsing successful, text length:', value.length);
+          return value.trim();
+        } catch (error) {
+          console.error('parseFile - DOCX parsing error:', error);
+          throw new Error(`Failed to extract text from Word document: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      } else {
+        return 'Word document parsing is only available on the server.';
       }
     }
 
