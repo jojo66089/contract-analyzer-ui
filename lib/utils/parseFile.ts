@@ -16,9 +16,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 const AdmZip = require('adm-zip');
 
-// Adobe PDF Services credentials
-const PDF_SERVICES_CLIENT_ID = 'REMOVED_CLIENT_ID';
-const PDF_SERVICES_CLIENT_SECRET = 'REMOVED_SECRET';
+// Adobe PDF Services credentials - Use environment variables
+const PDF_SERVICES_CLIENT_ID = process.env.ADOBE_PDF_SERVICES_CLIENT_ID || '';
+const PDF_SERVICES_CLIENT_SECRET = process.env.ADOBE_PDF_SERVICES_CLIENT_SECRET || '';
 
 async function extractPdfWithAdobe(file: Buffer | Uint8Array): Promise<string> {
   // Write the buffer to a temp file
