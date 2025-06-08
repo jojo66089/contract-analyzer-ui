@@ -1,15 +1,1 @@
-{
-  "version": 2,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/next"
-    }
-  ],
-  "env": {
-    "ADOBE_PDF_SERVICES_CLIENT_ID": "demo",
-    "ADOBE_PDF_SERVICES_CLIENT_SECRET": "demo"
-  },
-  "buildCommand": "npm run build",
-  "installCommand": "npm install"
-} 
+{"version":2,"builds":[{"src":"package.json","use":"@vercel/next"}],"env":{"ADOBE_PDF_SERVICES_CLIENT_ID":"demo","ADOBE_PDF_SERVICES_CLIENT_SECRET":"demo"},"buildCommand":"npm run build","installCommand":"npm install"}
