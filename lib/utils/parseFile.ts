@@ -59,27 +59,59 @@ function isValidText(text: string): boolean {
  * Parse a file and extract its text content
  */
 export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Promise<string> {
+  console.log('parseFile - Starting with mimetype:', mimetype, 'buffer size:', file.length);
+  
   try {
     if (mimetype === 'application/pdf') {
+      console.log('parseFile - Processing PDF file');
+      
       try {
-        // Dynamic import of pdf-parse
-        const pdfParse = (await import('pdf-parse')).default;
-        const data = await pdfParse(Buffer.from(file));
+        // Ensure we have a proper Buffer
+        const buffer = Buffer.isBuffer(file) ? file : Buffer.from(file);
+        console.log('parseFile - Buffer created, size:', buffer.length);
+        
+        // Try to use require first (more reliable in server environment)
+        let pdfParse;
+        try {
+          pdfParse = require('pdf-parse');
+          console.log('parseFile - Using require for pdf-parse');
+        } catch (requireError) {
+          console.log('parseFile - Require failed, trying dynamic import:', requireError);
+          const pdfParseModule = await import('pdf-parse');
+          pdfParse = pdfParseModule.default;
+          console.log('parseFile - Using dynamic import for pdf-parse');
+        }
+        
+        console.log('parseFile - Calling pdf-parse with buffer');
+        const data = await pdfParse(buffer);
+        console.log('parseFile - PDF parse completed, text length:', data?.text?.length || 0);
+        
         let text = data.text || '';
+        
+        if (!text) {
+          console.warn('parseFile - No text extracted from PDF');
+          return 'No text could be extracted from this PDF. The file may contain only images or be corrupted.';
+        }
+        
+        console.log('parseFile - Raw text first 200 chars:', text.substring(0, 200));
         
         // Clean the text
         text = cleanPdfText(text);
+        console.log('parseFile - Cleaned text length:', text.length);
+        console.log('parseFile - Cleaned text first 200 chars:', text.substring(0, 200));
         
         // Check if the cleaned text looks valid
         if (!isValidText(text)) {
-          console.warn('PDF parsing - Extracted text does not look like meaningful content');
+          console.warn('parseFile - Extracted text does not look like meaningful content');
           return 'This PDF appears to contain mostly binary data or is corrupted. Please try uploading a different version of the document.';
         }
         
+        console.log('parseFile - PDF parsing successful');
         return text;
       } catch (error) {
-        console.error('PDF parsing error:', error);
-        return 'Failed to extract text from PDF. The file may be corrupted, password-protected, or contain only images.';
+        console.error('parseFile - PDF parsing error:', error);
+        // Return the actual error details for debugging
+        return `Failed to extract text from PDF. Error: ${error instanceof Error ? error.message : String(error)}. The file may be corrupted, password-protected, or contain only images.`;
       }
     }
 
@@ -87,20 +119,31 @@ export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Pr
       mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       mimetype === 'application/msword'
     ) {
+      console.log('parseFile - Processing Word document');
+      
       // For Word documents, use mammoth if available
       try {
         const mammoth = await import('mammoth');
-        const { value } = await mammoth.extractRawText({ buffer: Buffer.from(file) });
+        const buffer = Buffer.isBuffer(file) ? file : Buffer.from(file);
+        const { value } = await mammoth.extractRawText({ buffer });
+        console.log('parseFile - Word document parsing successful, text length:', value.length);
         return value.trim();
       } catch (error) {
-        console.error('DOCX parsing error:', error);
-        throw new Error('Failed to extract text from Word document');
+        console.error('parseFile - DOCX parsing error:', error);
+        throw new Error(`Failed to extract text from Word document: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+
+    // For text files, try to extract as plain text
+    if (mimetype === 'text/plain' || mimetype.startsWith('text/')) {
+      console.log('parseFile - Processing text file');
+      const buffer = Buffer.isBuffer(file) ? file : Buffer.from(file);
+      return buffer.toString('utf-8').trim();
     }
 
     throw new Error(`Unsupported file type: ${mimetype}`);
   } catch (error: any) {
-    console.error('Error parsing file:', error);
+    console.error('parseFile - General error:', error);
     throw new Error(`Failed to parse file: ${error.message}`);
   }
 }

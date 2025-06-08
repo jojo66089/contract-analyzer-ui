@@ -1,4 +1,4 @@
-import { Clause } from '../types/contract';
+import { Clause } from '../types';
 
 // Simple keyword-based clause type extraction
 const CLAUSE_TYPE_KEYWORDS: Record<string, string> = {
@@ -33,55 +33,155 @@ function extractClauseType(text: string): string | undefined {
   return undefined;
 }
 
-export function splitClauses(text: string): Clause[] {
-  // Enhanced regex for legal clauses (Section, Article, Clause, §, etc.)
-  const clauseRegex = /(?:^|\n)(Section|Article|Clause|§)?\s*([\dIVXLC]+)[.)]?\s*(.*?)(?=\n(?:Section|Article|Clause|§)?\s*[\dIVXLC]+[.)]?|\n*$)/gims;
-  const clauses: Clause[] = [];
-  let match;
-  let idx = 0;
+// Function to validate if a text segment looks like a legitimate clause
+function isValidClause(text: string): boolean {
+  if (!text || text.length < 10) return false;
+  
+  // Count readable characters
+  const readableChars = (text.match(/[a-zA-Z0-9\s.,;:!?'"()-]/g) || []).length;
+  const totalChars = text.length;
+  
+  // Should be at least 70% readable characters
+  if (readableChars / totalChars < 0.7) return false;
+  
+  // Should contain some actual words
+  const words = text.match(/\b[a-zA-Z]{2,}\b/g) || [];
+  if (words.length < 3) return false;
+  
+  return true;
+}
 
-  while ((match = clauseRegex.exec(text)) !== null) {
-    const [full, sectionType, number, rest] = match;
-    const startIndex = match.index;
-    const endIndex = clauseRegex.lastIndex;
-    // Multi-line title: take first non-empty line as title
-    const lines = rest.split('\n').map(l => l.trim()).filter(Boolean);
-    const title = lines[0] || undefined;
+// Function to extract a meaningful title from clause text
+function extractTitle(text: string): string | undefined {
+  const cleanText = text.trim();
+  if (!cleanText) return undefined;
+  
+  // Try to find the first meaningful line as title
+  const lines = cleanText.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return undefined;
+  
+  // Check if the first line looks like a title
+  const firstLine = lines[0];
+  if (firstLine.length < 100 && firstLine.length > 5) {
+    // Remove common section markers from the title
+    const titleCandidate = firstLine
+      .replace(/^(Section|Article|Clause|§)\s*[\dIVXLC]+[.)]?\s*/i, '')
+      .replace(/^\d+[.)]?\s*/, '')
+      .trim();
+    
+    if (titleCandidate && titleCandidate.length > 0 && titleCandidate.length < 80) {
+      return titleCandidate;
+    }
+  }
+  
+  // Fallback: try to extract a title from the beginning of the text
+  const words = cleanText.split(/\s+/).slice(0, 10).join(' ');
+  if (words.length > 0 && words.length < 80) {
+    return words;
+  }
+  
+  return undefined;
+}
+
+export function splitClauses(text: string): Clause[] {
+  console.log('splitClauses - Starting with text length:', text.length);
+  
+  // First validate the input text
+  if (!text || text.trim().length < 50) {
+    console.warn('splitClauses: Input text is too short or empty');
+    return [];
+  }
+  
+  const clauses: Clause[] = [];
+  let idx = 0;
+  
+  // Strategy 1: Look for numbered sections with § symbol or Roman numerals
+  const sectionRegex = /(?:^|\n)(§\s*[\dIVXLC]+\.?\d*|[IVX]+\.\s*|Section\s+[\dIVXLC]+\.?\d*|Article\s+[\dIVXLC]+\.?\d*)\s*([^\n]*?)(?=\n(?:§\s*[\dIVXLC]+\.?\d*|[IVX]+\.\s*|Section\s+[\dIVXLC]+\.?\d*|Article\s+[\dIVXLC]+\.?\d*|\n\s*$))/gims;
+  
+  let match;
+  while ((match = sectionRegex.exec(text)) !== null) {
+    const [full, sectionMarker, rest] = match;
     const clauseText = full.trim();
-    const clauseType = extractClauseType(title || clauseText);
+    
+    // Validate the clause before adding it
+    if (!isValidClause(clauseText)) {
+      console.warn(`splitClauses: Skipping invalid section: ${clauseText.substring(0, 50)}...`);
+      continue;
+    }
+    
+    // Extract a meaningful title
+    const title = extractTitle(clauseText);
+    
     clauses.push({
       id: `clause-${idx++}`,
       text: clauseText,
-      metadata: {
-        clauseNumber: number,
-        title,
-        startIndex,
-        endIndex,
-        clauseType,
-      },
+      title,
+      riskLevel: 'medium'
     });
   }
-
-  // Fallback: if no clauses found, split by paragraphs
+  
+  // Strategy 2: If no sections found, look for numbered paragraphs
   if (clauses.length === 0) {
-    const paras = text.split(/\n{2,}/);
-    for (let i = 0; i < paras.length; i++) {
-      const para = paras[i].trim();
-      if (!para) continue;
-      const clauseType = extractClauseType(para);
+    console.log('splitClauses: No sections found, trying numbered paragraphs');
+    const numberedRegex = /(?:^|\n)(\d+\.?\d*)\s*([^\n]*?)(?=\n\d+\.?\d*\s*|\n\s*$)/gims;
+    
+    while ((match = numberedRegex.exec(text)) !== null) {
+      const [full, number, rest] = match;
+      const clauseText = full.trim();
+      
+      if (!isValidClause(clauseText)) {
+        console.warn(`splitClauses: Skipping invalid numbered clause: ${clauseText.substring(0, 50)}...`);
+        continue;
+      }
+      
+      const title = extractTitle(clauseText);
+      
       clauses.push({
-        id: `para-${i}`,
-        text: para,
-        metadata: {
-          clauseNumber: `${i + 1}`,
-          title: undefined,
-          startIndex: text.indexOf(para),
-          endIndex: text.indexOf(para) + para.length,
-          clauseType,
-        },
+        id: `clause-${idx++}`,
+        text: clauseText,
+        title,
+        riskLevel: 'medium'
       });
     }
   }
-
+  
+  // Strategy 3: Fallback to paragraph splitting
+  if (clauses.length === 0) {
+    console.log('splitClauses: No structured clauses found, falling back to paragraph splitting');
+    const paras = text.split(/\n\s*\n/);
+    for (let i = 0; i < paras.length; i++) {
+      const para = paras[i].trim();
+      if (!para) continue;
+      
+      // Validate paragraph before creating clause
+      if (!isValidClause(para)) {
+        console.warn(`splitClauses: Skipping invalid paragraph: ${para.substring(0, 50)}...`);
+        continue;
+      }
+      
+      // Extract a meaningful title from the paragraph
+      const title = extractTitle(para);
+      
+      clauses.push({
+        id: `para-${i}`,
+        text: para,
+        title,
+        riskLevel: 'medium'
+      });
+    }
+  }
+  
+  // Strategy 4: If still no clauses, create a single clause with the entire text
+  if (clauses.length === 0) {
+    console.log('splitClauses: Creating single clause from entire text');
+    clauses.push({
+      id: 'full-text',
+      text: text.trim(),
+      title: 'Full Document',
+      riskLevel: 'medium'
+    });
+  }
+  
+  console.log(`splitClauses: Extracted ${clauses.length} clauses`);
   return clauses;
 } 
