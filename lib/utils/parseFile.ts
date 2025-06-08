@@ -274,29 +274,76 @@ async function extractTextFromPdfAdvanced(buffer: Buffer): Promise<string> {
 }
 
 /**
+ * This is a complete replacement for pdf-parse that doesn't rely on file system access
+ * It patches the functionality to avoid the dependency on test files
+ */
+async function patchedPdfParse(pdfBuffer: Buffer): Promise<{ text: string, numpages?: number }> {
+  console.log('patchedPdfParse - Using patched pdf-parse implementation');
+  
+  try {
+    // Import the PDF.js library (already a dependency of pdf-parse)
+    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf');
+    
+    // Load the PDF document
+    const pdf = await pdfjsLib.getDocument({
+      data: pdfBuffer,
+      // Use a proper DocumentInitParameters object
+      disableStream: true,
+      disableAutoFetch: true
+    }).promise;
+    
+    console.log(`patchedPdfParse - PDF loaded successfully, pages: ${pdf.numPages}`);
+    
+    // Extract text from all pages
+    let text = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((item: any) => 'str' in item ? item.str : '')
+        .join(' ');
+      text += pageText + '\n\n';
+    }
+    
+    console.log(`patchedPdfParse - Extracted text from ${pdf.numPages} pages, text length: ${text.length}`);
+    
+    return {
+      text,
+      numpages: pdf.numPages
+    };
+  } catch (error) {
+    console.error('patchedPdfParse - Error:', error);
+    
+    // If the patched implementation fails, fall back to extracting text directly
+    const extractedText = await extractTextFromPdfAdvanced(pdfBuffer);
+    return {
+      text: extractedText,
+      numpages: 1 // Assume single page as we can't determine actual page count
+    };
+  }
+}
+
+/**
  * A minimal PDF text extraction wrapper that handles errors from pdf-parse
  * by providing a fallback extraction method
  */
 async function safePdfParse(buffer: Buffer): Promise<string> {
-  console.log('safePdfParse - Attempting to parse PDF with pdf-parse');
+  console.log('safePdfParse - Starting safe PDF parsing');
   
   try {
-    // Try using pdf-parse first
-    const pdfParse = await import('pdf-parse');
-    const data = await pdfParse.default(buffer);
+    // First try our patched version that doesn't depend on filesystem
+    const result = await patchedPdfParse(buffer);
+    let text = result.text || '';
     
-    let text = data.text || '';
-    console.log('safePdfParse - PDF parsed successfully with pdf-parse, text length:', text.length);
-    
-    // Validate the extracted text
+    // If we got text but it doesn't look valid, try our alternative methods
     if (!isValidText(text)) {
-      console.log('safePdfParse - pdf-parse produced invalid text, falling back to advanced extraction');
+      console.log('safePdfParse - Patched pdf-parse produced invalid text, falling back to advanced extraction');
       return extractTextFromPdfAdvanced(buffer);
     }
     
     return text;
   } catch (error: any) {
-    console.warn('safePdfParse - pdf-parse failed, error:', error.message);
+    console.warn('safePdfParse - Patched pdf-parse failed:', error.message);
     
     // If the error is about the test file or any other error, try our advanced extractor
     console.log('safePdfParse - Falling back to advanced text extraction');
@@ -318,6 +365,13 @@ export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Pr
         // Ensure we have a proper Buffer
         const buffer = Buffer.isBuffer(file) ? file : Buffer.from(file);
         console.log('parseFile - Buffer created, size:', buffer.length);
+        
+        // Check for binary data in the first few bytes
+        const headerBytes = buffer.slice(0, Math.min(100, buffer.length)).toString('utf8');
+        if (headerBytes.includes('PDFium') || /[^\x20-\x7E\n\r\t]{10,}/.test(headerBytes)) {
+          console.warn('parseFile - PDF appears to contain binary data in header');
+          return 'This PDF appears to contain binary data that cannot be parsed. Please try uploading a different version of the document.';
+        }
         
         // Use our safe PDF parse function that provides fallbacks
         let text = await safePdfParse(buffer);
