@@ -34,7 +34,7 @@ A sophisticated legal-tech application built with Next.js that leverages AI to p
 
 1. Clone the repository
    ```bash
-   git clone https://github.com/yourusername/contract-analyzer-ui.git
+   git clone https://github.com/joshuaguillen/contract-analyzer-ui.git
    cd contract-analyzer-ui
    ```
 
