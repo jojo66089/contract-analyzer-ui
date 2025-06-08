@@ -29,14 +29,21 @@ const nextConfig = {
     config.externals = [...(config.externals || []), { 
       canvas: 'canvas',
       'canvas.node': 'canvas.node',
-      'pdfjs-dist': 'pdfjs-dist'
+      'pdfjs-dist': 'pdfjs-dist',
+      'tesseract.js-core': 'tesseract.js-core'
     }];
     
     return config;
   },
-  serverExternalPackages: ['docx', 'canvas'],
+  serverExternalPackages: ['docx', 'canvas', 'tesseract.js', 'tesseract.js-core'],
   env: {
     HF_MODEL_ID: process.env.HF_MODEL_ID,
+  },
+  experimental: {
+    serverComponentsExternalPackages: ['tesseract.js', 'tesseract.js-core'],
+    serverActions: {
+      bodySizeLimit: '10mb',
+    },
   },
 }
 

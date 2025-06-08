@@ -227,6 +227,150 @@ function extractTextFromPdfBuffer(buffer: Buffer): string {
 }
 
 /**
+ * Extract images from PDF for OCR processing
+ * This only runs on the server side
+ */
+async function extractImagesFromPdf(buffer: Buffer): Promise<Buffer[]> {
+  console.log('extractImagesFromPdf - Extracting images from PDF for OCR');
+  
+  if (typeof window !== 'undefined') {
+    console.log('extractImagesFromPdf - Cannot extract images in browser environment');
+    return [];
+  }
+  
+  try {
+    // Import the PDF.js library
+    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf');
+    
+    // Load the PDF document
+    const pdf = await pdfjsLib.getDocument({
+      data: buffer,
+      disableStream: true,
+      disableAutoFetch: true
+    }).promise;
+    
+    console.log(`extractImagesFromPdf - PDF loaded successfully, pages: ${pdf.numPages}`);
+    
+    const images: Buffer[] = [];
+    
+    // Process each page to extract images
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const operatorList = await page.getOperatorList();
+      
+      // Find image objects in the operator list
+      for (let i = 0; i < operatorList.fnArray.length; i++) {
+        const op = operatorList.fnArray[i];
+        
+        // Check if this is a "paintImageXObject" operation
+        if (op === pdfjsLib.OPS.paintImageXObject) {
+          const name = operatorList.argsArray[i][0];
+          
+          // Get the XObject dictionary
+          const objects = await page.objs.get(name);
+          if (objects && objects.data) {
+            // Convert image data to buffer
+            const imageData = objects.data;
+            images.push(Buffer.from(imageData));
+          }
+        }
+      }
+    }
+    
+    console.log(`extractImagesFromPdf - Extracted ${images.length} images from PDF`);
+    return images;
+  } catch (error) {
+    console.error('Error extracting images from PDF:', error);
+    return [];
+  }
+}
+
+/**
+ * Perform OCR on extracted images
+ * This only runs on the server side
+ */
+async function performOcrOnImages(images: Buffer[]): Promise<string> {
+  console.log(`performOcrOnImages - Performing OCR on ${images.length} images`);
+  
+  if (typeof window !== 'undefined' || images.length === 0) {
+    return '';
+  }
+  
+  try {
+    // Import Tesseract.js
+    const { createWorker } = await import('tesseract.js');
+    
+    // Create a worker - using any type to bypass TypeScript errors 
+    // since the Tesseract types aren't properly recognized
+    const worker = await createWorker() as any;
+    
+    // Initialize worker with English language
+    await worker.loadLanguage('eng');
+    await worker.initialize('eng');
+    
+    let combinedText = '';
+    
+    // Process each image
+    for (let i = 0; i < images.length; i++) {
+      console.log(`performOcrOnImages - Processing image ${i + 1} of ${images.length}`);
+      
+      // Perform OCR
+      const { data: { text } } = await worker.recognize(images[i]);
+      
+      if (text && text.trim()) {
+        combinedText += text + '\n\n';
+      }
+    }
+    
+    // Terminate worker
+    await worker.terminate();
+    
+    console.log(`performOcrOnImages - OCR complete, extracted ${combinedText.length} characters`);
+    return combinedText.trim();
+  } catch (error) {
+    console.error('Error performing OCR:', error);
+    return '';
+  }
+}
+
+/**
+ * Enhanced preprocessing for scanned PDFs
+ */
+async function preprocessScannedPdf(buffer: Buffer): Promise<string> {
+  console.log('preprocessScannedPdf - Starting preprocessing for scanned PDF');
+  
+  // Only run on server side
+  if (typeof window !== 'undefined') {
+    console.log('preprocessScannedPdf - Cannot preprocess in browser environment');
+    return '';
+  }
+  
+  try {
+    // Extract images from PDF
+    const images = await extractImagesFromPdf(buffer);
+    
+    if (images.length === 0) {
+      console.log('preprocessScannedPdf - No images found in PDF');
+      return '';
+    }
+    
+    // Perform OCR on extracted images
+    const ocrText = await performOcrOnImages(images);
+    
+    if (!ocrText || ocrText.length < 50) {
+      console.log('preprocessScannedPdf - OCR did not produce significant text');
+      return '';
+    }
+    
+    console.log(`preprocessScannedPdf - Successfully extracted ${ocrText.length} characters via OCR`);
+    return ocrText;
+  } catch (error) {
+    console.error('Error preprocessing scanned PDF:', error);
+    return '';
+  }
+}
+
+/**
  * Extract text directly from PDF using advanced techniques
  */
 async function extractTextFromPdfAdvanced(buffer: Buffer): Promise<string> {
@@ -257,6 +401,17 @@ async function extractTextFromPdfAdvanced(buffer: Buffer): Promise<string> {
       if (readableTextBlocks.length > 0) {
         text = readableTextBlocks.join('\n\n');
         console.log('extractTextFromPdfAdvanced - Found readable text blocks, length:', text.length);
+      }
+    }
+    
+    // If text is still invalid, try OCR for scanned documents
+    if (!text || !isValidText(text)) {
+      console.log('extractTextFromPdfAdvanced - Standard extraction failed, attempting OCR for scanned document');
+      const ocrText = await preprocessScannedPdf(buffer);
+      
+      if (ocrText && ocrText.length > 100) {
+        console.log('extractTextFromPdfAdvanced - OCR extraction successful');
+        return ocrText;
       }
     }
     
@@ -308,6 +463,20 @@ async function patchedPdfParse(pdfBuffer: Buffer): Promise<{ text: string, numpa
       }
       
       console.log(`patchedPdfParse - Extracted text from ${pdf.numPages} pages, text length: ${text.length}`);
+      
+      // If extracted text is insufficient, try OCR as fallback
+      if (!text || text.length < 100 || !isValidText(text)) {
+        console.log('patchedPdfParse - Extracted text is insufficient, trying OCR');
+        const ocrText = await preprocessScannedPdf(pdfBuffer);
+        
+        if (ocrText && ocrText.length > 100) {
+          console.log('patchedPdfParse - OCR extraction successful');
+          return {
+            text: ocrText,
+            numpages: pdf.numPages
+          };
+        }
+      }
       
       return {
         text,
@@ -381,7 +550,17 @@ export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Pr
         // Check for binary data in the first few bytes
         const headerBytes = buffer.slice(0, Math.min(100, buffer.length)).toString('utf8');
         if (headerBytes.includes('PDFium') || /[^\x20-\x7E\n\r\t]{10,}/.test(headerBytes)) {
-          console.warn('parseFile - PDF appears to contain binary data in header');
+          console.warn('parseFile - PDF appears to contain binary data in header, attempting OCR');
+          
+          // Try OCR for scanned documents
+          if (typeof window === 'undefined') {
+            const ocrText = await preprocessScannedPdf(buffer);
+            if (ocrText && ocrText.length > 100) {
+              console.log('parseFile - OCR successful for binary PDF');
+              return ocrText;
+            }
+          }
+          
           return 'This PDF appears to contain binary data that cannot be parsed. Please try uploading a different version of the document.';
         }
         
@@ -389,7 +568,17 @@ export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Pr
         let text = await safePdfParse(buffer);
         
         if (!text) {
-          console.warn('parseFile - No text extracted from PDF');
+          console.warn('parseFile - No text extracted from PDF, trying OCR');
+          
+          // Try OCR as last resort
+          if (typeof window === 'undefined') {
+            const ocrText = await preprocessScannedPdf(buffer);
+            if (ocrText && ocrText.length > 100) {
+              console.log('parseFile - Last-resort OCR successful');
+              return ocrText;
+            }
+          }
+          
           return 'No text could be extracted from this PDF. The file may contain only images or be corrupted.';
         }
         
@@ -402,7 +591,17 @@ export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Pr
         
         // Check if the cleaned text looks valid
         if (!isValidText(text)) {
-          console.warn('parseFile - Extracted text does not look like meaningful content');
+          console.warn('parseFile - Extracted text does not look like meaningful content, trying OCR');
+          
+          // Try OCR for image-based PDFs
+          if (typeof window === 'undefined') {
+            const ocrText = await preprocessScannedPdf(buffer);
+            if (ocrText && ocrText.length > 100) {
+              console.log('parseFile - OCR successful after invalid text detected');
+              return ocrText;
+            }
+          }
+          
           return 'This PDF appears to contain mostly binary data or is corrupted. Please try uploading a different version of the document.';
         }
         

@@ -13,5 +13,15 @@
     "NODE_ENV": "production"
   },
   "buildCommand": "npm run build",
-  "installCommand": "npm install"
+  "installCommand": "npm install",
+  "functions": {
+    "api/upload/route.ts": {
+      "memory": 1024,
+      "maxDuration": 60
+    },
+    "api/contract/*/analyze/route.ts": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  }
 }
