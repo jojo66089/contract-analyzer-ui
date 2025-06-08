@@ -1,93 +1,24 @@
 import { Buffer } from 'buffer';
-import * as Tesseract from 'tesseract.js';
-import { createCanvas } from 'canvas';
 // Use require for mammoth due to export style
 import * as mammoth from 'mammoth';
-const {
-  ServicePrincipalCredentials,
-  PDFServices,
-  ExtractPDFJob,
-  ExtractPDFParams,
-  ExtractElementType,
-  MimeType,
-  ExtractPDFResult
-} = require('@adobe/pdfservices-node-sdk');
+// @ts-ignore - Missing types for pdf-parse
+import pdfParse from 'pdf-parse';
 import * as fs from 'fs';
-import * as path from 'path';
-const AdmZip = require('adm-zip');
 
-// Adobe PDF Services credentials - Use environment variables
-const PDF_SERVICES_CLIENT_ID = process.env.ADOBE_PDF_SERVICES_CLIENT_ID || '';
-const PDF_SERVICES_CLIENT_SECRET = process.env.ADOBE_PDF_SERVICES_CLIENT_SECRET || '';
-
-async function extractPdfWithAdobe(file: Buffer | Uint8Array): Promise<string> {
-  // Write the buffer to a temp file
-  const tempInput = path.join('/tmp', `input_${Date.now()}.pdf`);
-  const tempOutput = path.join('/tmp', `output_${Date.now()}.zip`);
-  fs.writeFileSync(tempInput, file);
-
-  // Set up credentials
-  const credentials = new ServicePrincipalCredentials({
-    clientId: PDF_SERVICES_CLIENT_ID,
-    clientSecret: PDF_SERVICES_CLIENT_SECRET
-  });
-
-  // Create PDFServices instance
-  const pdfServices = new PDFServices({ credentials });
-
-  // Upload the file as an asset
-  const readStream = fs.createReadStream(tempInput);
-  const inputAsset = await pdfServices.upload({ readStream, mimeType: MimeType.PDF });
-
-  // Set up extract params
-  const params = new ExtractPDFParams({
-    elementsToExtract: [ExtractElementType.TEXT, ExtractElementType.TABLES],
-    getStylingInfo: true
-  });
-
-  // Create and submit the extract job
-  const job = new ExtractPDFJob({ inputAsset, params });
-  const pollingURL = await pdfServices.submit({ job });
-  const pdfServicesResponse = await pdfServices.getJobResult({ pollingURL, resultType: ExtractPDFResult });
-
-  // Get the result asset and download the zip
-  const resultAsset = pdfServicesResponse.result.resource;
-  const streamAsset = await pdfServices.getContent({ asset: resultAsset });
-  const writeStream = fs.createWriteStream(tempOutput);
-  await new Promise<void>((resolve, reject) => {
-    streamAsset.readStream.pipe(writeStream);
-    writeStream.on('finish', resolve);
-    writeStream.on('error', reject);
-    streamAsset.readStream.on('error', reject);
-  });
-
-  // Unzip and read structuredData.json
-  const zip = new AdmZip(tempOutput);
-  const jsonEntry = zip.getEntry('structuredData.json');
-  if (!jsonEntry) throw new Error('structuredData.json not found in Adobe Extract output');
-  const jsonStr = zip.readAsText(jsonEntry);
-  const data = JSON.parse(jsonStr);
-
-  // Concatenate all text elements
-  let fullText = '';
-  if (data.elements && Array.isArray(data.elements)) {
-    for (const el of data.elements) {
-      if (el.Text) fullText += el.Text + '\n';
-    }
-  }
-
-  // Clean up temp files
-  fs.unlinkSync(tempInput);
-  fs.unlinkSync(tempOutput);
-
-  return fullText.trim();
-}
-
+/**
+ * Parse a file and extract its text content
+ */
 export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Promise<string> {
   try {
     if (mimetype === 'application/pdf') {
-      // Use Adobe PDF Extract API for PDFs
-      return await extractPdfWithAdobe(file);
+      // Use pdf-parse for PDF text extraction
+      try {
+        const data = await pdfParse(Buffer.from(file));
+        return data.text || '';
+      } catch (pdfError) {
+        console.error('PDF parsing error:', pdfError);
+        return 'Failed to extract text from PDF. The file may be corrupted or password-protected.';
+      }
     }
 
     if (
