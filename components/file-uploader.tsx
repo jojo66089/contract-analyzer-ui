@@ -231,6 +231,7 @@ export default function FileUploader() {
           </div>
           <Input
             id="dropzone-file"
+            name="file"
             type="file"
             className="hidden"
             onChange={handleFileChange}

@@ -4,29 +4,6 @@ import { Buffer } from "buffer";
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Custom PDF parsing function that works in serverless environments
-// by handling the test file reference without file system access
-async function customPdfParse(dataBuffer: Buffer): Promise<{ text: string, numpages?: number }> {
-  try {
-    // First try to dynamically import pdf-parse
-    const pdfParseModule = await import('pdf-parse');
-    const pdfParse = pdfParseModule.default;
-    
-    // Create a proxy around the original function to intercept file system calls
-    return await pdfParse(dataBuffer);
-  } catch (error: any) {
-    console.error('Error in customPdfParse:', error);
-    
-    // If error is about the test file, we can continue with empty text
-    if (error.message && error.message.includes('05-versions-space.pdf')) {
-      console.log('Ignoring test file error and continuing');
-      return { text: '' };
-    }
-    
-    throw error;
-  }
-}
-
 /**
  * Clean PDF text by removing binary data and object references
  */
@@ -81,6 +58,152 @@ function isValidText(text: string): boolean {
 }
 
 /**
+ * Simple fallback function to extract text from a PDF buffer
+ * This is a very basic implementation and won't work for all PDFs,
+ * but it's sufficient for text-based PDFs in a serverless environment
+ */
+function extractTextFromPdfBuffer(buffer: Buffer): string {
+  console.log('extractTextFromPdfBuffer - Starting basic PDF text extraction');
+  
+  try {
+    // Convert buffer to string and remove binary content
+    const bufferString = buffer.toString('utf8', 0, Math.min(buffer.length, 1000000));
+    
+    // Find text objects - look for common patterns in PDF text objects
+    let text = '';
+    
+    // Extract text from PDF using regex
+    // This is a simplified approach and won't work for all PDFs
+    const textChunks: string[] = [];
+    
+    // Look for text between BT and ET tags (text objects in PDF)
+    const btEtRegex = /BT\s*(.*?)\s*ET/gs;
+    let match;
+    while ((match = btEtRegex.exec(bufferString)) !== null) {
+      if (match[1]) {
+        textChunks.push(match[1]);
+      }
+    }
+    
+    // Look for text in content streams
+    const streamRegex = /stream\s*(.*?)\s*endstream/gs;
+    while ((match = streamRegex.exec(bufferString)) !== null) {
+      if (match[1]) {
+        const streamContent = match[1];
+        // Look for text elements in stream
+        const textElementRegex = /\((.*?)\)Tj/g;
+        let textMatch;
+        while ((textMatch = textElementRegex.exec(streamContent)) !== null) {
+          if (textMatch[1]) {
+            textChunks.push(textMatch[1]);
+          }
+        }
+        
+        // Also look for <...> text format
+        const hexTextRegex = /<([0-9A-Fa-f]+)>Tj/g;
+        while ((textMatch = hexTextRegex.exec(streamContent)) !== null) {
+          if (textMatch[1]) {
+            // Convert hex to text
+            try {
+              const hexText = textMatch[1];
+              let decoded = '';
+              for (let i = 0; i < hexText.length; i += 2) {
+                decoded += String.fromCharCode(parseInt(hexText.substr(i, 2), 16));
+              }
+              textChunks.push(decoded);
+            } catch (e) {
+              // Ignore errors in hex conversion
+            }
+          }
+        }
+      }
+    }
+    
+    // Join all text chunks
+    text = textChunks.join(' ');
+    
+    console.log('extractTextFromPdfBuffer - Extracted raw text, length:', text.length);
+    
+    // Additional attempt to find text if the previous methods didn't work
+    if (text.length < 100) {
+      console.log('extractTextFromPdfBuffer - Trying alternative text extraction method');
+      
+      // Look for strings in the PDF
+      const stringRegex = /\(([^\)\\]*(?:\\.[^\)\\]*)*)\)/g;
+      const strings: string[] = [];
+      
+      while ((match = stringRegex.exec(bufferString)) !== null) {
+        if (match[1] && match[1].length > 2) {
+          strings.push(match[1]);
+        }
+      }
+      
+      if (strings.length > 0) {
+        text = strings.join(' ');
+        console.log('extractTextFromPdfBuffer - Alternative method extracted text, length:', text.length);
+      }
+    }
+    
+    // Last attempt - just extract anything that looks like text
+    if (text.length < 100) {
+      console.log('extractTextFromPdfBuffer - Trying last resort text extraction');
+      
+      // Extract anything that looks like text
+      const textLikeRegex = /[A-Za-z]{3,}[A-Za-z\s.,;:!?'"-]{10,}/g;
+      const textLike: string[] = [];
+      
+      while ((match = textLikeRegex.exec(bufferString)) !== null) {
+        if (match[0]) {
+          textLike.push(match[0]);
+        }
+      }
+      
+      if (textLike.length > 0) {
+        text = textLike.join(' ');
+        console.log('extractTextFromPdfBuffer - Last resort method extracted text, length:', text.length);
+      }
+    }
+    
+    return text;
+  } catch (error) {
+    console.error('Error in extractTextFromPdfBuffer:', error);
+    return '';
+  }
+}
+
+/**
+ * A minimal PDF text extraction wrapper that handles errors from pdf-parse
+ * by providing a fallback extraction method
+ */
+async function safePdfParse(buffer: Buffer): Promise<string> {
+  console.log('safePdfParse - Attempting to parse PDF with pdf-parse');
+  
+  try {
+    // Try using pdf-parse first
+    const pdfParse = await import('pdf-parse');
+    const data = await pdfParse.default(buffer);
+    console.log('safePdfParse - PDF parsed successfully with pdf-parse');
+    return data.text || '';
+  } catch (error: any) {
+    console.warn('safePdfParse - pdf-parse failed, error:', error.message);
+    
+    // If the error is about the test file, we can fallback to our custom extractor
+    if (error.message && (
+        error.message.includes('05-versions-space.pdf') || 
+        error.code === 'ENOENT' ||
+        error.message.includes('no such file or directory')
+    )) {
+      console.log('safePdfParse - Falling back to custom text extraction');
+      return extractTextFromPdfBuffer(buffer);
+    }
+    
+    // For other errors, we might still want to try our fallback
+    console.log('safePdfParse - Falling back to custom text extraction for other error');
+    return extractTextFromPdfBuffer(buffer);
+  }
+}
+
+/**
  * Parse a file and extract its text content
  */
 export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Promise<string> {
@@ -95,12 +218,8 @@ export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Pr
         const buffer = Buffer.isBuffer(file) ? file : Buffer.from(file);
         console.log('parseFile - Buffer created, size:', buffer.length);
         
-        // Use our custom PDF parse function that handles the test file issue
-        console.log('parseFile - Calling customPdfParse with buffer');
-        const data = await customPdfParse(buffer);
-        console.log('parseFile - PDF parse completed, text length:', data?.text?.length || 0);
-        
-        let text = data.text || '';
+        // Use our safe PDF parse function that provides fallbacks
+        let text = await safePdfParse(buffer);
         
         if (!text) {
           console.warn('parseFile - No text extracted from PDF');
