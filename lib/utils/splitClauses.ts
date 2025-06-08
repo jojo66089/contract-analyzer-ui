@@ -23,6 +23,22 @@ const CLAUSE_TYPE_KEYWORDS: Record<string, string> = {
   noncompete: 'Non-Compete',
   'non-solicit': 'Non-Solicit',
   arbitration: 'Arbitration',
+  agreement: 'Agreement',
+  disclosure: 'Disclosure',
+  term: 'Term and Termination',
+  license: 'License',
+  privacy: 'Privacy',
+  compliance: 'Compliance',
+  limitation: 'Limitation of Liability',
+  consent: 'Consent',
+  obligations: 'Obligations',
+  purpose: 'Purpose',
+  representations: 'Representations and Warranties',
+  remedies: 'Remedies',
+  waiver: 'Waiver',
+  compensation: 'Compensation',
+  confidential: 'Confidentiality',
+  non: 'Non-Disclosure'
 };
 
 function extractClauseType(text: string): string | undefined {
@@ -31,6 +47,30 @@ function extractClauseType(text: string): string | undefined {
     if (lower.includes(keyword)) return type;
   }
   return undefined;
+}
+
+/**
+ * Removes binary data and cleans up text for clause extraction
+ */
+function cleanForClauseExtraction(text: string): string {
+  if (!text) return '';
+  
+  // Check if text contains PDF structural data or binary content
+  if (/endobj|xref|trailer|\/Type\/|\/Length \d+|\/Filter\/|PDFium/.test(text)) {
+    console.log('cleanForClauseExtraction - PDF structure data detected, applying aggressive cleaning');
+    
+    // Return error message that will be used as a single clause
+    return 'The uploaded PDF could not be parsed correctly. It appears to contain binary data or is in a format our parser cannot read. Please try uploading a different PDF file.';
+  }
+  
+  // Remove any remaining non-printable characters
+  text = text.replace(/[^\x20-\x7E\n\r\t]/g, ' ');
+  
+  // Clean up whitespace
+  return text
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 // Function to validate if a text segment looks like a legitimate clause
@@ -42,11 +82,30 @@ function isValidClause(text: string): boolean {
   const totalChars = text.length;
   
   // Should be at least 70% readable characters
-  if (readableChars / totalChars < 0.7) return false;
+  if (readableChars / totalChars < 0.7) {
+    console.log('isValidClause - Less than 70% readable characters');
+    return false;
+  }
   
   // Should contain some actual words
-  const words = text.match(/\b[a-zA-Z]{2,}\b/g) || [];
-  if (words.length < 3) return false;
+  const words = text.match(/\b[a-zA-Z]{3,}\b/g) || [];
+  if (words.length < 3) {
+    console.log('isValidClause - Fewer than 3 actual words');
+    return false;
+  }
+  
+  // Detect if the text is mostly binary or PDF structural data
+  if (/endobj|xref|trailer|\/Type\/|\/Length \d+|\/Filter\/|PDFium/.test(text)) {
+    console.log('isValidClause - PDF structure data detected');
+    return false;
+  }
+  
+  // Check for natural language patterns (e.g., articles, prepositions)
+  const naturalLanguagePattern = /\b(the|a|an|in|of|to|for|with|by|on|at)\b/i;
+  if (!naturalLanguagePattern.test(text) && text.length > 50) {
+    console.log('isValidClause - No natural language patterns detected');
+    return false;
+  }
   
   return true;
 }
@@ -74,6 +133,12 @@ function extractTitle(text: string): string | undefined {
     }
   }
   
+  // Attempt to extract clause type from content
+  const clauseType = extractClauseType(cleanText);
+  if (clauseType) {
+    return clauseType;
+  }
+  
   // Fallback: try to extract a title from the beginning of the text
   const words = cleanText.split(/\s+/).slice(0, 10).join(' ');
   if (words.length > 0 && words.length < 80) {
@@ -86,10 +151,29 @@ function extractTitle(text: string): string | undefined {
 export function splitClauses(text: string): Clause[] {
   console.log('splitClauses - Starting with text length:', text.length);
   
+  // First clean the text for clause extraction
+  const cleanedText = cleanForClauseExtraction(text);
+  
+  // If the cleaning process detected PDF structure data and returned an error message
+  if (cleanedText.startsWith('The uploaded PDF could not be parsed correctly')) {
+    console.log('splitClauses - Using error message as a single clause');
+    return [{
+      id: 'error-pdf',
+      text: cleanedText,
+      title: 'PDF Parsing Error',
+      riskLevel: 'high'
+    }];
+  }
+  
   // First validate the input text
-  if (!text || text.trim().length < 50) {
+  if (!cleanedText || cleanedText.trim().length < 50) {
     console.warn('splitClauses: Input text is too short or empty');
-    return [];
+    return [{
+      id: 'error-short',
+      text: 'The document text is too short or could not be properly extracted. Please check the file and try again.',
+      title: 'Document Error',
+      riskLevel: 'high'
+    }];
   }
   
   const clauses: Clause[] = [];
@@ -99,7 +183,9 @@ export function splitClauses(text: string): Clause[] {
   const sectionRegex = /(?:^|\n)(§\s*[\dIVXLC]+\.?\d*|[IVX]+\.\s*|Section\s+[\dIVXLC]+\.?\d*|Article\s+[\dIVXLC]+\.?\d*)\s*([^\n]*?)(?=\n(?:§\s*[\dIVXLC]+\.?\d*|[IVX]+\.\s*|Section\s+[\dIVXLC]+\.?\d*|Article\s+[\dIVXLC]+\.?\d*|\n\s*$))/gims;
   
   let match;
-  while ((match = sectionRegex.exec(text)) !== null) {
+  let matchFound = false;
+  while ((match = sectionRegex.exec(cleanedText)) !== null) {
+    matchFound = true;
     const [full, sectionMarker, rest] = match;
     const clauseText = full.trim();
     
@@ -125,7 +211,8 @@ export function splitClauses(text: string): Clause[] {
     console.log('splitClauses: No sections found, trying numbered paragraphs');
     const numberedRegex = /(?:^|\n)(\d+\.?\d*)\s*([^\n]*?)(?=\n\d+\.?\d*\s*|\n\s*$)/gims;
     
-    while ((match = numberedRegex.exec(text)) !== null) {
+    while ((match = numberedRegex.exec(cleanedText)) !== null) {
+      matchFound = true;
       const [full, number, rest] = match;
       const clauseText = full.trim();
       
@@ -148,7 +235,7 @@ export function splitClauses(text: string): Clause[] {
   // Strategy 3: Fallback to paragraph splitting
   if (clauses.length === 0) {
     console.log('splitClauses: No structured clauses found, falling back to paragraph splitting');
-    const paras = text.split(/\n\s*\n/);
+    const paras = cleanedText.split(/\n\s*\n/);
     for (let i = 0; i < paras.length; i++) {
       const para = paras[i].trim();
       if (!para) continue;
@@ -171,12 +258,33 @@ export function splitClauses(text: string): Clause[] {
     }
   }
   
-  // Strategy 4: If still no clauses, create a single clause with the entire text
+  // Strategy 4: If still no clauses, check if we have found any matches but they were all invalid
+  if (clauses.length === 0 && matchFound) {
+    console.log('splitClauses: Found patterns but all were invalid, creating error clause');
+    return [{
+      id: 'invalid-content',
+      text: 'The document appears to contain invalid content or binary data. Please try uploading a different file or format.',
+      title: 'Invalid Content',
+      riskLevel: 'high'
+    }];
+  }
+  
+  // Strategy 5: If still no clauses, create a single clause with the entire text
   if (clauses.length === 0) {
     console.log('splitClauses: Creating single clause from entire text');
+    // Final check if the text looks valid at all
+    if (!isValidClause(cleanedText)) {
+      return [{
+        id: 'binary-data',
+        text: 'The document appears to contain binary data instead of text. Please try uploading a different file or format.',
+        title: 'Binary Data Detected',
+        riskLevel: 'high'
+      }];
+    }
+    
     clauses.push({
       id: 'full-text',
-      text: text.trim(),
+      text: cleanedText.trim(),
       title: 'Full Document',
       riskLevel: 'medium'
     });

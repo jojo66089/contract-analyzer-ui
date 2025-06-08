@@ -10,8 +10,33 @@ import * as path from 'path';
 function cleanPdfText(text: string): string {
   if (!text) return '';
   
+  // Check if the text looks like binary/PDF structure data
+  if (/PDFium|endstream|endobj|\/Type\/|\/Length \d+|\/Filter\/|xref|trailer/.test(text)) {
+    console.log('cleanPdfText - PDF structure data detected, applying aggressive cleaning');
+    
+    // Remove common PDF structure markers and binary data
+    text = text
+      // Remove PDF object markers completely
+      .replace(/\d+ \d+ obj[\s\S]*?endobj/g, '')
+      // Remove stream data
+      .replace(/stream[\s\S]*?endstream/g, '')
+      // Remove xref tables
+      .replace(/xref[\s\S]*?trailer/g, '')
+      // Remove binary data markers
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u00FF]+/g, ' ')
+      // Remove PDF structural syntax
+      .replace(/\/[A-Za-z0-9]+/g, ' ') // Remove PDF name objects like /Type, /Page
+      .replace(/<<[\s\S]*?>>/g, ' ')   // Remove PDF dictionaries
+      .replace(/\[[\s\S]*?\]/g, ' ')   // Remove PDF arrays
+      // Remove escaped characters
+      .replace(/\\[nrtfb\\()]/g, ' ')
+      // Remove non-printable characters
+      .replace(/[^\x20-\x7E\n\r\t]/g, ' ');
+  }
+  
+  // Apply standard cleaning for text content
   return text
-    // Remove PDF object markers
+    // Remove remaining PDF object markers
     .replace(/\d+ 0 obj[^>]*>?/gi, '')
     .replace(/<<[^>]*>>/g, '')
     .replace(/\bobj\b/g, '')
@@ -25,15 +50,11 @@ function cleanPdfText(text: string): string {
     // Remove startxref
     .replace(/\bstartxref\b.*$/gm, '')
     // Remove binary data markers
-    .replace(/x[\u0000-\u001F\u007F-\u00FF]+/g, '')
-    // Remove lines that are mostly binary/encoded data
-    .replace(/^[^\w\s]*[\u0080-\uFFFF\u0000-\u001F]+[^\w\s]*$/gm, '')
+    .replace(/[\u0000-\u001F\u007F-\u00FF]+/g, '')
     // Remove PDF version headers
     .replace(/%PDF-[\d.]+/g, '')
     // Remove other PDF markers
     .replace(/%%EOF/g, '')
-    // Remove non-printable characters but preserve line breaks
-    .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
     // Clean up excessive whitespace but preserve paragraph breaks
     .replace(/[ \t]+/g, ' ')
     .replace(/\n[ \t]*\n/g, '\n\n')
@@ -47,12 +68,43 @@ function cleanPdfText(text: string): string {
 function isValidText(text: string): boolean {
   if (!text || text.length < 50) return false;
   
-  // Count words
-  const words = text.match(/\b[a-zA-Z]{2,}\b/g) || [];
+  // Detect if text is mostly binary/garbage
+  const binaryPattern = /[^\x20-\x7E\n\r\t]/g;
+  const binaryMatches = text.match(binaryPattern) || [];
+  const binaryRatio = binaryMatches.length / text.length;
+  
+  // If more than 15% is binary/non-printable, it's probably not valid text
+  if (binaryRatio > 0.15) {
+    console.log('isValidText - High binary character ratio detected:', binaryRatio);
+    return false;
+  }
+  
+  // Check for PDF structure markers that indicate raw PDF data rather than content
+  const pdfStructurePattern = /endobj|xref|trailer|\/Type\/|\/Length \d+|\/Filter\//;
+  if (pdfStructurePattern.test(text)) {
+    console.log('isValidText - PDF structure markers detected, likely not valid text');
+    return false;
+  }
+  
+  // Count words (improved to avoid counting PDF syntax elements as words)
+  const words = text.match(/\b[a-zA-Z]{3,}\b/g) || [];
   const wordCount = words.length;
   
-  // Should have at least 10 recognizable words
-  if (wordCount < 10) return false;
+  // Should have at least 15 recognizable words
+  if (wordCount < 15) {
+    console.log('isValidText - Insufficient word count:', wordCount);
+    return false;
+  }
+  
+  // Check for sentence structure (periods followed by spaces and capital letters)
+  const sentencePattern = /\.\s+[A-Z]/g;
+  const sentenceMatches = text.match(sentencePattern) || [];
+  
+  // Should have at least a few proper sentences
+  if (sentenceMatches.length < 2 && text.length > 200) {
+    console.log('isValidText - No proper sentence structure detected');
+    return false;
+  }
   
   return true;
 }
@@ -164,10 +216,60 @@ function extractTextFromPdfBuffer(buffer: Buffer): string {
       }
     }
     
+    // Clean the text before returning
+    text = cleanPdfText(text);
+    
     return text;
   } catch (error) {
     console.error('Error in extractTextFromPdfBuffer:', error);
     return '';
+  }
+}
+
+/**
+ * Extract text directly from PDF using advanced techniques
+ */
+async function extractTextFromPdfAdvanced(buffer: Buffer): Promise<string> {
+  console.log('extractTextFromPdfAdvanced - Attempting advanced PDF text extraction');
+  
+  try {
+    // Try multiple approaches to extract text
+    let text = await extractTextFromPdfBuffer(buffer);
+    
+    // If we got some text but it doesn't look valid, try another approach
+    if (text && !isValidText(text)) {
+      console.log('extractTextFromPdfAdvanced - First extraction attempt produced invalid text, trying alternative method');
+      
+      // Simplified approach based on string patterns
+      const bufferString = buffer.toString('utf8', 0, Math.min(buffer.length, 2000000));
+      
+      // Try to find blocks of readable text
+      const readableTextBlocks: string[] = [];
+      const readableTextRegex = /[A-Za-z][A-Za-z\s.,;:!?'"-]{30,}/g;
+      let match;
+      
+      while ((match = readableTextRegex.exec(bufferString)) !== null) {
+        if (match[0]) {
+          readableTextBlocks.push(match[0]);
+        }
+      }
+      
+      if (readableTextBlocks.length > 0) {
+        text = readableTextBlocks.join('\n\n');
+        console.log('extractTextFromPdfAdvanced - Found readable text blocks, length:', text.length);
+      }
+    }
+    
+    // If we still don't have valid text, create a clear error message
+    if (!text || !isValidText(text)) {
+      console.log('extractTextFromPdfAdvanced - Failed to extract valid text from PDF');
+      return 'Failed to extract text from this PDF. The file appears to contain binary data, is encrypted, or uses a format our parser cannot read. Please try a different PDF file.';
+    }
+    
+    return text;
+  } catch (error) {
+    console.error('Error in extractTextFromPdfAdvanced:', error);
+    return 'Error extracting text from PDF. The file may be corrupted or use an unsupported format.';
   }
 }
 
@@ -182,24 +284,23 @@ async function safePdfParse(buffer: Buffer): Promise<string> {
     // Try using pdf-parse first
     const pdfParse = await import('pdf-parse');
     const data = await pdfParse.default(buffer);
-    console.log('safePdfParse - PDF parsed successfully with pdf-parse');
-    return data.text || '';
+    
+    let text = data.text || '';
+    console.log('safePdfParse - PDF parsed successfully with pdf-parse, text length:', text.length);
+    
+    // Validate the extracted text
+    if (!isValidText(text)) {
+      console.log('safePdfParse - pdf-parse produced invalid text, falling back to advanced extraction');
+      return extractTextFromPdfAdvanced(buffer);
+    }
+    
+    return text;
   } catch (error: any) {
     console.warn('safePdfParse - pdf-parse failed, error:', error.message);
     
-    // If the error is about the test file, we can fallback to our custom extractor
-    if (error.message && (
-        error.message.includes('05-versions-space.pdf') || 
-        error.code === 'ENOENT' ||
-        error.message.includes('no such file or directory')
-    )) {
-      console.log('safePdfParse - Falling back to custom text extraction');
-      return extractTextFromPdfBuffer(buffer);
-    }
-    
-    // For other errors, we might still want to try our fallback
-    console.log('safePdfParse - Falling back to custom text extraction for other error');
-    return extractTextFromPdfBuffer(buffer);
+    // If the error is about the test file or any other error, try our advanced extractor
+    console.log('safePdfParse - Falling back to advanced text extraction');
+    return extractTextFromPdfAdvanced(buffer);
   }
 }
 
