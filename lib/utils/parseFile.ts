@@ -1,100 +1,143 @@
 import { Buffer } from 'buffer';
-import * as Tesseract from 'tesseract.js';
-import { createCanvas } from 'canvas';
 // Use require for mammoth due to export style
 import * as mammoth from 'mammoth';
-const {
-  ServicePrincipalCredentials,
-  PDFServices,
-  ExtractPDFJob,
-  ExtractPDFParams,
-  ExtractElementType,
-  MimeType,
-  ExtractPDFResult
-} = require('@adobe/pdfservices-node-sdk');
 import * as fs from 'fs';
 import * as path from 'path';
-const AdmZip = require('adm-zip');
 
-// Adobe PDF Services credentials - Use environment variables
-const PDF_SERVICES_CLIENT_ID = process.env.ADOBE_PDF_SERVICES_CLIENT_ID || '';
-const PDF_SERVICES_CLIENT_SECRET = process.env.ADOBE_PDF_SERVICES_CLIENT_SECRET || '';
-
-async function extractPdfWithAdobe(file: Buffer | Uint8Array): Promise<string> {
-  // Write the buffer to a temp file
-  const tempInput = path.join('/tmp', `input_${Date.now()}.pdf`);
-  const tempOutput = path.join('/tmp', `output_${Date.now()}.zip`);
-  fs.writeFileSync(tempInput, file);
-
-  // Set up credentials
-  const credentials = new ServicePrincipalCredentials({
-    clientId: PDF_SERVICES_CLIENT_ID,
-    clientSecret: PDF_SERVICES_CLIENT_SECRET
-  });
-
-  // Create PDFServices instance
-  const pdfServices = new PDFServices({ credentials });
-
-  // Upload the file as an asset
-  const readStream = fs.createReadStream(tempInput);
-  const inputAsset = await pdfServices.upload({ readStream, mimeType: MimeType.PDF });
-
-  // Set up extract params
-  const params = new ExtractPDFParams({
-    elementsToExtract: [ExtractElementType.TEXT, ExtractElementType.TABLES],
-    getStylingInfo: true
-  });
-
-  // Create and submit the extract job
-  const job = new ExtractPDFJob({ inputAsset, params });
-  const pollingURL = await pdfServices.submit({ job });
-  const pdfServicesResponse = await pdfServices.getJobResult({ pollingURL, resultType: ExtractPDFResult });
-
-  // Get the result asset and download the zip
-  const resultAsset = pdfServicesResponse.result.resource;
-  const streamAsset = await pdfServices.getContent({ asset: resultAsset });
-  const writeStream = fs.createWriteStream(tempOutput);
-  await new Promise<void>((resolve, reject) => {
-    streamAsset.readStream.pipe(writeStream);
-    writeStream.on('finish', resolve);
-    writeStream.on('error', reject);
-    streamAsset.readStream.on('error', reject);
-  });
-
-  // Unzip and read structuredData.json
-  const zip = new AdmZip(tempOutput);
-  const jsonEntry = zip.getEntry('structuredData.json');
-  if (!jsonEntry) throw new Error('structuredData.json not found in Adobe Extract output');
-  const jsonStr = zip.readAsText(jsonEntry);
-  const data = JSON.parse(jsonStr);
-
-  // Concatenate all text elements
-  let fullText = '';
-  if (data.elements && Array.isArray(data.elements)) {
-    for (const el of data.elements) {
-      if (el.Text) fullText += el.Text + '\n';
-    }
+// Fix for pdf-parse loading test file in production
+// Monkey patch the fs.readFileSync to handle the test file reference
+const originalReadFileSync = fs.readFileSync;
+// @ts-ignore
+fs.readFileSync = function(path, options) {
+  if (path === './test/data/05-versions-space.pdf') {
+    // Return an empty buffer when the test file is requested
+    console.log('Intercepted request for test PDF file');
+    return Buffer.from([]);
   }
+  // @ts-ignore
+  return originalReadFileSync(path, options);
+};
 
-  // Clean up temp files
-  fs.unlinkSync(tempInput);
-  fs.unlinkSync(tempOutput);
-
-  return fullText.trim();
+// Enhanced function to clean PDF text by removing binary data and object references
+function cleanPdfText(text: string): string {
+  if (!text) return '';
+  
+  return text
+    // Remove PDF object markers (more comprehensive)
+    .replace(/\d+ 0 obj[^>]*>?/gi, '')
+    .replace(/<<[^>]*>>/g, '')
+    .replace(/\bobj\b/g, '')
+    .replace(/\bendobj\b/g, '')
+    // Remove stream markers
+    .replace(/\bstream\b[\s\S]*?\bendstream\b/gi, '')
+    // Remove xref tables
+    .replace(/\bxref\b[\s\S]*?(?=\d+ 0 obj|$)/gi, '')
+    // Remove trailer
+    .replace(/\btrailer\b[\s\S]*?(?=\d+ 0 obj|$)/gi, '')
+    // Remove startxref
+    .replace(/\bstartxref\b.*$/gm, '')
+    // Remove binary data markers that start with x and special chars
+    .replace(/x[\u0000-\u001F\u007F-\u00FF]+/g, '')
+    // Remove lines that are mostly binary/encoded data
+    .replace(/^[^\w\s]*[\u0080-\uFFFF\u0000-\u001F]+[^\w\s]*$/gm, '')
+    // Remove PDF version headers
+    .replace(/%PDF-[\d.]+/g, '')
+    // Remove other PDF markers
+    .replace(/%%EOF/g, '')
+    // Remove non-printable characters but preserve line breaks
+    .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+    // Split by lines and filter out garbage lines, but preserve structure
+    .split('\n')
+    .filter(line => {
+      const trimmed = line.trim();
+      
+      // Keep empty lines for paragraph separation
+      if (!trimmed) return true;
+      
+      // Skip lines that are just numbers (likely object references)
+      if (/^\d+(\s+\d+)*\s*$/.test(trimmed)) return false;
+      
+      // Skip lines that contain mostly special characters or binary data
+      const alphaNumericCount = (trimmed.match(/[a-zA-Z0-9\s]/g) || []).length;
+      const totalLength = trimmed.length;
+      if (totalLength < 3) return false;
+      
+      // Require at least 50% readable characters
+      return (alphaNumericCount / totalLength) > 0.5;
+    })
+    .join('\n')
+    // Clean up excessive whitespace but preserve paragraph breaks
+    .replace(/[ \t]+/g, ' ') // Multiple spaces/tabs to single space
+    .replace(/\n[ \t]*\n/g, '\n\n') // Ensure proper paragraph breaks
+    .replace(/\n{3,}/g, '\n\n') // Limit to double line breaks max
+    .trim();
 }
 
-export async function parseFile(file: Buffer | Uint8Array, mimetype: string): Promise<string> {
+// Function to check if extracted text looks like meaningful content
+function isValidText(text: string): boolean {
+  if (!text || text.length < 50) return false;
+  
+  // Count words vs non-word characters
+  const words = text.match(/\b[a-zA-Z]{2,}\b/g) || [];
+  const wordCount = words.length;
+  
+  // Should have at least 10 recognizable words
+  if (wordCount < 10) return false;
+  
+  // Check for common contract words
+  const contractKeywords = [
+    'agreement', 'contract', 'party', 'parties', 'shall', 'will', 'terms',
+    'conditions', 'clause', 'section', 'article', 'payment', 'liability',
+    'termination', 'effective', 'date', 'obligations', 'rights', 'duties'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  const foundKeywords = contractKeywords.filter(keyword => lowerText.includes(keyword));
+  
+  // Should have at least some contract-related words
+  return foundKeywords.length >= 3;
+}
+
+/**
+ * Parse a file and extract its text content
+ */
+async function parseFile(file: Buffer | Uint8Array, mimetype: string): Promise<string> {
   try {
     if (mimetype === 'application/pdf') {
-      // Use Adobe PDF Extract API for PDFs
-      return await extractPdfWithAdobe(file);
+      // For PDF files, try to extract text with pdf-parse
+      try {
+        // @ts-ignore - Missing types for pdf-parse
+        const pdfParse = require('pdf-parse');
+        const data = await pdfParse(Buffer.from(file));
+        let text = data.text || '';
+        
+        console.log('PDF parsing - Raw text length:', text.length);
+        console.log('PDF parsing - First 200 chars:', text.substring(0, 200));
+        
+        // Always clean the text for PDFs since they often contain artifacts
+        text = cleanPdfText(text);
+        
+        console.log('PDF parsing - Cleaned text length:', text.length);
+        console.log('PDF parsing - First 200 chars after cleaning:', text.substring(0, 200));
+        
+        // Check if the cleaned text looks valid
+        if (!isValidText(text)) {
+          console.warn('PDF parsing - Extracted text does not look like meaningful content');
+          return 'This PDF appears to contain mostly binary data or is corrupted. Please try uploading a different version of the document or convert it to a text-based PDF.';
+        }
+        
+        return text;
+      } catch (error) {
+        console.error('PDF parsing error:', error);
+        return 'Failed to extract text from PDF. The file may be corrupted, password-protected, or contain only images. Please try uploading a text-based PDF or convert the document to a different format.';
+      }
     }
 
     if (
       mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       mimetype === 'application/msword'
     ) {
-      // Use mammoth for robust DOCX extraction
+      // Use mammoth for DOCX extraction
       const { value } = await mammoth.extractRawText({ buffer: Buffer.from(file) });
       return value.trim();
     }
@@ -127,4 +170,7 @@ if (require.main === module) {
       process.exit(2);
     }
   })();
-} 
+}
+
+export { parseFile };
+export default parseFile; 

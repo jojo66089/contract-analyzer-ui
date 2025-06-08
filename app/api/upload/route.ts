@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { updateContract } from '@/lib/db/redis';
 import { getSessionId } from '@/lib/utils/session';
 import { splitClauses } from '@/lib/utils/splitClauses';
-import { parseFile } from '@/lib/utils/parseFile';
+import parseFile from '@/lib/utils/parseFile';
 
 export const runtime = 'nodejs';        // Force Node.js runtime
 export const dynamic = 'force-dynamic';  // Skip static optimization

@@ -409,7 +409,7 @@ export default function AnalysisPage() {
                       ) : (
                         <LoadingSpinner size="sm" className="mr-2" />
                       )}
-                      Clause {idx + 1}: {clause.title || clause.text.substring(0, 50) + '...'}
+                      Clause {idx + 1}: {clause.title || `Untitled Clause ${idx + 1}`}
                     </li>
                   ))}
                 </ul>
