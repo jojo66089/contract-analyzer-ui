@@ -7,7 +7,7 @@
     "NODE_ENV": "production"
   },
   "buildCommand": "npm run build",
-  "installCommand": "npm install",
+  "installCommand": "npm install --legacy-peer-deps",
   "functions": {
     "app/api/upload/route.ts": {
       "memory": 1024,
