@@ -1,0 +1,21 @@
+MASTER SERVICE AGREEMENT
+
+1. DEFINITIONS
+For purposes of this Agreement, the following terms shall have the meanings set forth below:
+"Confidential Information" means any and all non-public, proprietary information.
+"Services" means the services described in each Statement of Work.
+
+2. PAYMENT TERMS  
+Client shall pay Contractor within thirty (30) days of receipt of invoice.
+Late payments shall incur reasonable penalty fees as determined by Contractor.
+All fees are non-refundable unless otherwise specified in writing.
+
+3. TERMINATION
+Either party may terminate this Agreement for material breach with reasonable notice.
+Upon termination, all work product shall be delivered to Client immediately.
+Confidentiality obligations shall survive termination indefinitely.
+
+4. LIABILITY LIMITATION
+IN NO EVENT SHALL CONTRACTOR BE LIABLE FOR CONSEQUENTIAL DAMAGES.
+Total liability shall not exceed the amount paid under this Agreement.
+These limitations apply to the maximum extent permitted by law. 

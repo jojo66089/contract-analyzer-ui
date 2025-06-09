@@ -21,11 +21,18 @@ def analyze_legal_clause(clause_text):
         detected_recommendations = []
         detected_missing = []
         detected_references = []
+        detected_citations = []
+        detected_problematic_text = []
         
         # Advanced legal analysis patterns
         if 'reasonable' in clause_lower:
             detected_ambiguities.append("Term 'reasonable' is subjective and may lead to disputes over interpretation")
             detected_recommendations.append("Define specific criteria, timeframes, or benchmarks for what constitutes 'reasonable'")
+            # Extract specific citations
+            reasonable_matches = re.findall(r'[^.]*reasonable[^.]*\.?', clause_text, re.IGNORECASE)
+            if reasonable_matches:
+                detected_citations.extend(reasonable_matches[:2])
+                detected_problematic_text.append("Use of subjective term 'reasonable'")
         
         if 'best efforts' in clause_lower or 'best endeavors' in clause_lower:
             detected_ambiguities.append("'Best efforts' standard lacks clear definition and enforcement criteria")
@@ -35,6 +42,11 @@ def analyze_legal_clause(clause_text):
         if 'material' in clause_lower and ('breach' in clause_lower or 'change' in clause_lower):
             detected_ambiguities.append("Definition of 'material' is not specified and subject to interpretation")
             detected_recommendations.append("Define materiality thresholds with specific examples or percentage/dollar amounts")
+            # Extract material breach citations
+            material_matches = re.findall(r'[^.]*material[^.]*\.?', clause_text, re.IGNORECASE)
+            if material_matches:
+                detected_citations.extend(material_matches[:1])
+                detected_problematic_text.append("Undefined 'material' threshold")
         
         if 'confidential' in clause_lower:
             detected_risks.append("Scope of confidentiality obligations may be overly broad or insufficiently defined")
@@ -45,6 +57,11 @@ def analyze_legal_clause(clause_text):
             detected_risks.append("Termination conditions and procedures may create enforcement difficulties")
             detected_recommendations.append("Specify exact termination procedures, notice requirements, and cure periods")
             detected_missing.append("Post-termination obligations and survival clauses")
+            # Extract termination citations
+            termination_matches = re.findall(r'[^.]*terminat[^.]*\.?', clause_text, re.IGNORECASE)
+            if termination_matches:
+                detected_citations.extend(termination_matches[:1])
+                detected_problematic_text.append("Unclear termination procedures")
         
         if 'liability' in clause_lower or 'damages' in clause_lower:
             detected_risks.append("Liability exposure may be inadequately limited or undefined")
@@ -129,16 +146,28 @@ def analyze_legal_clause(clause_text):
         if not detected_references:
             detected_references.extend(["Restatement (Second) of Contracts", "Uniform Commercial Code (UCC)"])
         
+        # Determine risk level
+        total_issues = len(detected_ambiguities) + len(detected_risks)
+        if total_issues >= 5:
+            risk_level = "high"
+        elif total_issues >= 3:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+        
         analysis_result = {
             "ambiguities": detected_ambiguities[:5],  # Limit to 5 items for clarity
             "risks": detected_risks[:5],
             "recommendations": detected_recommendations[:5],
             "missingElements": detected_missing[:4],
             "references": detected_references[:3],
+            "citations": detected_citations[:6],  # Specific problematic text snippets
+            "problematicText": detected_problematic_text[:5],  # Summary of problematic phrases
+            "riskLevel": risk_level,
             "enhanced": True,
             "keyFinding": f"Legal analysis identified {len(detected_ambiguities + detected_risks)} key concerns requiring attention",
             "analysisType": "rule_based_legal_analysis",
-            "version": "1.0"
+            "version": "1.1"
         }
         
         return json.dumps(analysis_result, indent=2)
