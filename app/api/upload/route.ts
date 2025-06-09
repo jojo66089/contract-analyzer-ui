@@ -41,10 +41,34 @@ export async function POST(request: NextRequest) {
     try {
       text = await parseFile(buffer, file.type);
       console.log('Upload Route - Successfully extracted text, length:', text.length);
+      
+      // Basic validation
+      if (text.length < 50) {
+        throw new Error('Extracted text is too short - file may be corrupted or empty');
+      }
     } catch (parseError) {
       console.error('Upload Route - Failed to parse file:', parseError);
-      // Fallback to raw text for non-PDF files
-      text = await file.text();
+      
+      if (file.type === 'application/pdf') {
+        // For PDFs, return a proper error instead of trying to proceed
+        return NextResponse.json({ 
+          error: 'Failed to extract text from PDF. The file may be password-protected, corrupted, or contain only images. Please try a different PDF or contact support.',
+          details: parseError instanceof Error ? parseError.message : String(parseError)
+        }, { status: 400 });
+      } else {
+        // Fallback to raw text for non-PDF files
+        try {
+          text = await file.text();
+          if (text.length < 50) {
+            throw new Error('File appears to be empty or too short');
+          }
+        } catch (fallbackError) {
+          return NextResponse.json({ 
+            error: 'Failed to extract text from file. The file may be corrupted or in an unsupported format.',
+            details: fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+          }, { status: 400 });
+        }
+      }
     }
     
     const contractId = `doc-${Date.now()}`;
@@ -52,8 +76,26 @@ export async function POST(request: NextRequest) {
     
     // Extract clauses from the contract text
     console.log('Upload Route - Extracting clauses from contract text');
-    const clauses = splitClauses(text);
-    console.log(`Upload Route - Extracted ${clauses.length} clauses`);
+    let clauses;
+    try {
+      clauses = splitClauses(text);
+      console.log(`Upload Route - Extracted ${clauses.length} clauses`);
+      
+      // Validate that we got meaningful clauses
+      if (clauses.length === 0 || (clauses.length === 1 && clauses[0].text.length < 100)) {
+        console.warn('Upload Route - Insufficient clauses extracted, text may be corrupted');
+        return NextResponse.json({ 
+          error: 'Could not extract meaningful content from the document. The file may be corrupted, password-protected, or contain only images.',
+          details: `Extracted ${clauses.length} clauses with ${text.length} total characters`
+        }, { status: 400 });
+      }
+    } catch (clauseError) {
+      console.error('Upload Route - Clause extraction failed:', clauseError);
+      return NextResponse.json({ 
+        error: 'Failed to parse document content. The file appears to contain corrupted or binary data.',
+        details: clauseError instanceof Error ? clauseError.message : String(clauseError)
+      }, { status: 400 });
+    }
     
     // Create a plain object for Redis storage
     const contract = {

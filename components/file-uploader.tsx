@@ -141,7 +141,10 @@ export default function FileUploader() {
       setUploadProgress(100)
       
       if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`)
+        const errorData = await response.json().catch(() => null);
+        const errorMessage = errorData?.error || `Upload failed: ${response.statusText}`;
+        const errorDetails = errorData?.details ? ` Details: ${errorData.details}` : '';
+        throw new Error(`${errorMessage}${errorDetails}`);
       }
       
       const { id: documentId } = await response.json()

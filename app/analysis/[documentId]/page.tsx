@@ -177,54 +177,118 @@ export default function AnalysisPage() {
       .catch(err => console.error('Error fetching summary:', err));
   }, [allAnalysesReady, documentId]);
 
-  // Optimized streaming analysis
+  // Optimized streaming analysis using fetch with credentials
   useEffect(() => {
     if (!clauses.length || !documentId) return;
     
+    console.log('Starting analysis stream for document:', documentId, 'with', clauses.length, 'clauses');
     setIsStreaming(true);
-    const es = new EventSource(`/api/contract/${documentId}/analyze`);
-    eventSourceRef.current = es;
     
-    es.onmessage = (event) => {
+    const controller = new AbortController();
+    
+    const startAnalysisStream = async () => {
       try {
-        const { clauseId, analysis: clauseAnalysis, error } = JSON.parse(event.data);
+        console.log('Fetching analysis stream with credentials...');
+        const response = await fetch(`/api/contract/${documentId}/analyze`, {
+          method: 'GET',
+          credentials: 'include', // This ensures cookies are sent
+          headers: {
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache'
+          },
+          signal: controller.signal
+        });
         
-        if (clauseId && clauseAnalysis) {
-          setAnalyses((prev) => ({ ...prev, [clauseId]: clauseAnalysis }));
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        if (!response.body) {
+          throw new Error('No response body received');
+        }
+        
+        console.log('Analysis stream connection established');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        
+        let buffer = '';
+        
+        while (true) {
+          const { done, value } = await reader.read();
           
-          // Auto-select first clause if none selected
-          if (!selectedClause) {
-            const clause = clauses.find((c) => c.id === clauseId);
-            if (clause) {
-              setSelectedClause(clause);
-              setAnalysis(clauseAnalysis);
+          if (done) {
+            console.log('Analysis stream completed');
+            break;
+          }
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep incomplete line in buffer
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = line.slice(6); // Remove "data: " prefix
+                if (data === 'done') {
+                  console.log('Analysis stream ended');
+                  setIsStreaming(false);
+                  return;
+                }
+                
+                console.log('Received analysis event:', data);
+                const { clauseId, analysis: clauseAnalysis, error } = JSON.parse(data);
+                
+                if (clauseId && clauseAnalysis) {
+                  console.log('Storing analysis for clause:', clauseId);
+                  setAnalyses((prev) => ({ ...prev, [clauseId]: clauseAnalysis }));
+                  
+                  // Auto-select first clause if none selected
+                  if (!selectedClause) {
+                    const clause = clauses.find((c) => c.id === clauseId);
+                    if (clause) {
+                      console.log('Auto-selecting first analyzed clause:', clauseId);
+                      setSelectedClause(clause);
+                      setAnalysis(clauseAnalysis);
+                    }
+                  } else if (selectedClause.id === clauseId) {
+                    // If this is the analysis for the currently selected clause, update it
+                    setAnalysis(clauseAnalysis);
+                  }
+                }
+                
+                if (clauseId && error) {
+                  console.error('Analysis error for clause', clauseId, ':', error);
+                  setAnalyses((prev) => ({ ...prev, [clauseId]: { error } }));
+                }
+              } catch (parseErr) {
+                console.error('Error parsing analysis event:', parseErr);
+              }
+            } else if (line.startsWith('event: end')) {
+              console.log('Analysis stream ended');
+              setIsStreaming(false);
+              return;
             }
-          } else if (selectedClause.id === clauseId) {
-            // If this is the analysis for the currently selected clause, update it
-            setAnalysis(clauseAnalysis);
           }
         }
-        
-        if (clauseId && error) {
-          setAnalyses((prev) => ({ ...prev, [clauseId]: { error } }));
-        }
       } catch (err) {
-        console.error('Error parsing analysis event:', err);
+        if (err instanceof Error && err.name === 'AbortError') {
+          console.log('Analysis stream aborted');
+          return;
+        }
+        
+        console.error('Analysis stream error:', err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        setError(`Analysis failed: ${errorMessage}. Please reload the page and try again.`);
+        setIsStreaming(false);
       }
     };
     
-    es.addEventListener('end', () => {
-      setIsStreaming(false);
-      es.close();
-    });
+    startAnalysisStream();
     
-    es.onerror = (err) => {
-      console.error('EventSource error:', err);
-      setIsStreaming(false);
-      es.close();
+    return () => {
+      console.log('Cleaning up analysis stream');
+      controller.abort();
     };
-    
-    return () => es.close();
   }, [clauses, documentId, selectedClause]);
 
   // Update analysis when selection or language changes

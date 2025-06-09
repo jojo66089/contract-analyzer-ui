@@ -56,11 +56,40 @@ function cleanForClauseExtraction(text: string): string {
   if (!text) return '';
   
   // Check if text contains PDF structural data or binary content
-  if (/endobj|xref|trailer|\/Type\/|\/Length \d+|\/Filter\/|PDFium/.test(text)) {
-    console.log('cleanForClauseExtraction - PDF structure data detected, applying aggressive cleaning');
-    
-    // Return error message that will be used as a single clause
-    return 'The uploaded PDF could not be parsed correctly. It appears to contain binary data or is in a format our parser cannot read. Please try uploading a different PDF file.';
+  const binaryIndicators = [
+    /endobj|xref|trailer|\/Type\/|\/Length \d+|\/Filter\/|PDFium/,
+    /D:\d{14}\s+PDFium/,  // PDF timestamp markers like "D:20250608020620 PDFium"
+    /stream[\s\S]*?endstream/,  // PDF stream data
+    /\d+\s+\d+\s+obj/,  // PDF object markers
+    /%%EOF/,  // PDF end marker
+    /%PDF-\d\.\d/  // PDF header
+  ];
+  
+  for (const pattern of binaryIndicators) {
+    if (pattern.test(text)) {
+      console.log('cleanForClauseExtraction - PDF structure/binary data detected');
+      throw new Error('PDF contains binary or structural data that cannot be parsed');
+    }
+  }
+  
+  // Check for high ratio of non-printable or random characters
+  const totalChars = text.length;
+  const printableChars = (text.match(/[a-zA-Z0-9\s.,;:!?'"()-]/g) || []).length;
+  const printableRatio = printableChars / Math.max(totalChars, 1);
+  
+  if (printableRatio < 0.6 && totalChars > 100) {
+    console.log('cleanForClauseExtraction - Too many non-printable characters:', printableRatio);
+    throw new Error('Text contains too many non-printable characters - likely corrupted');
+  }
+  
+  // Check if text looks like random character sequences
+  const words = text.split(/\s+/).filter(word => word.length > 2);
+  const validWords = words.filter(word => /^[a-zA-Z][a-zA-Z0-9]*$/.test(word));
+  const validWordRatio = validWords.length / Math.max(words.length, 1);
+  
+  if (validWordRatio < 0.2 && text.length > 100) {
+    console.log('cleanForClauseExtraction - Too few valid words, text appears corrupted:', validWordRatio);
+    throw new Error('Text appears to be corrupted or contains mostly invalid characters');
   }
   
   // Remove any remaining non-printable characters
@@ -152,17 +181,13 @@ export function splitClauses(text: string): Clause[] {
   console.log('splitClauses - Starting with text length:', text.length);
   
   // First clean the text for clause extraction
-  const cleanedText = cleanForClauseExtraction(text);
-  
-  // If the cleaning process detected PDF structure data and returned an error message
-  if (cleanedText.startsWith('The uploaded PDF could not be parsed correctly')) {
-    console.log('splitClauses - Using error message as a single clause');
-    return [{
-      id: 'error-pdf',
-      text: cleanedText,
-      title: 'PDF Parsing Error',
-      riskLevel: 'high'
-    }];
+  let cleanedText: string;
+  try {
+    cleanedText = cleanForClauseExtraction(text);
+  } catch (error) {
+    console.error('splitClauses - Text cleaning failed:', error);
+    // Re-throw the error so it can be caught at the upload level
+    throw new Error(`Document parsing failed: ${error instanceof Error ? error.message : String(error)}`);
   }
   
   // First validate the input text
