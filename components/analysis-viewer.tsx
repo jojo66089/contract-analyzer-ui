@@ -86,6 +86,15 @@ export default function AnalysisViewer({ analysis, clause, language }: AnalysisV
                 <span>{t.references}</span>
               </div>
             </TabsTrigger>
+            
+            {(analysis.citations || analysis.problematicText) && (
+              <TabsTrigger value="citations" className="flex-1 h-auto py-2 px-3">
+                <div className="flex items-center justify-center">
+                  <AlertTriangle className="w-4 h-4 mr-1.5" />
+                  <span>{language === 'es' ? 'Citas' : 'Citations'}</span>
+                </div>
+              </TabsTrigger>
+            )}
           </TabsList>
           
           <div className="pt-4">
@@ -168,6 +177,53 @@ export default function AnalysisViewer({ analysis, clause, language }: AnalysisV
                 <p className="text-sm text-muted-foreground">{t.noReferences}</p>
               )}
             </TabsContent>
+            
+            {(analysis.citations || analysis.problematicText) && (
+              <TabsContent value="citations" className="mt-0 space-y-2">
+                <h3 className="font-semibold text-sm mb-2">
+                  {language === 'es' ? 'Texto Problemático Citado' : 'Problematic Text Citations'}
+                </h3>
+                
+                {analysis.citations && analysis.citations.length > 0 && (
+                  <div className="space-y-2 mb-4">
+                    <h4 className="text-xs font-medium text-muted-foreground uppercase">
+                      {language === 'es' ? 'Fragmentos Problemáticos:' : 'Problematic Snippets:'}
+                    </h4>
+                    <ul className="space-y-2">
+                      {analysis.citations.map((citation, index) => (
+                        <li key={index} className="p-2 bg-yellow-50 border-l-4 border-yellow-400 rounded">
+                          <Badge variant="outline" className="mr-2 text-yellow-700">📝</Badge>
+                          <span className="text-sm italic text-yellow-800">"{citation}"</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {analysis.problematicText && analysis.problematicText.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-medium text-muted-foreground uppercase">
+                      {language === 'es' ? 'Frases Problemáticas:' : 'Problematic Phrases:'}
+                    </h4>
+                    <ul className="space-y-2">
+                      {analysis.problematicText.map((text, index) => (
+                        <li key={index} className="flex items-start">
+                          <Badge variant="destructive" className="mr-2 mt-0.5">⚠</Badge>
+                          <span className="text-sm">{text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {(!analysis.citations || analysis.citations.length === 0) && 
+                 (!analysis.problematicText || analysis.problematicText.length === 0) && (
+                  <p className="text-sm text-muted-foreground">
+                    {language === 'es' ? 'No se encontraron citas problemáticas.' : 'No problematic citations found.'}
+                  </p>
+                )}
+              </TabsContent>
+            )}
           </div>
         </Tabs>
       </CardContent>

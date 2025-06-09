@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { updateContract } from '@/lib/db/redis';
 import { getSessionId } from '@/lib/utils/session';
 import { splitClauses } from '@/lib/utils/splitClauses';
+import { splitClausesWithLLM } from '@/lib/utils/splitClausesWithLLM';
 import { parseFile } from '@/lib/utils/parseFile';
 
 export const runtime = 'nodejs';        // Force Node.js runtime
@@ -74,12 +75,20 @@ export async function POST(request: NextRequest) {
     const contractId = `doc-${Date.now()}`;
     console.log('Upload Route - Generated contract ID:', contractId);
     
-    // Extract clauses from the contract text
+    // Extract clauses from the contract text using LLM first, then fallback
     console.log('Upload Route - Extracting clauses from contract text');
     let clauses;
     try {
-      clauses = splitClauses(text);
-      console.log(`Upload Route - Extracted ${clauses.length} clauses`);
+      // Try LLM-based clause splitting first for better accuracy
+      console.log('Upload Route - Attempting LLM-based clause splitting');
+      try {
+        clauses = await splitClausesWithLLM(text);
+        console.log(`Upload Route - LLM extracted ${clauses.length} clauses successfully`);
+      } catch (llmError) {
+        console.warn('Upload Route - LLM clause splitting failed, falling back to regex method:', llmError);
+        clauses = splitClauses(text);
+        console.log(`Upload Route - Fallback method extracted ${clauses.length} clauses`);
+      }
       
       // Validate that we got meaningful clauses
       if (clauses.length === 0 || (clauses.length === 1 && clauses[0].text.length < 100)) {

@@ -196,14 +196,23 @@ async function analyzeWithHuggingFaceAPI(clauseText: string, retryCount = 0): Pr
   try {
     console.log(`Calling Hugging Face Inference API (attempt ${retryCount + 1})`);
     
-    const prompt = `You are a legal expert. Analyze this contract clause and provide a JSON response with:
+    const prompt = `You are a legal expert. Analyze this contract clause and provide a detailed JSON response with:
 {
   "ambiguities": ["list of ambiguous terms"],
   "risks": ["list of legal risks"],
   "recommendations": ["list of recommendations"],
   "missingElements": ["list of missing clauses"],
-  "references": ["list of legal references"]
+  "references": ["list of legal references"],
+  "citations": ["specific text snippets from the clause that are problematic"],
+  "problematicText": ["specific phrases or sentences that need attention"],
+  "riskLevel": "high/medium/low"
 }
+
+Instructions:
+- Identify specific problematic text snippets and include them in "citations"
+- Quote exact phrases that are ambiguous or risky in "problematicText"
+- Assess overall risk level for this clause
+- Provide actionable, specific recommendations
 
 Clause: ${clauseText}
 
@@ -428,12 +437,60 @@ function createEnhancedFallbackAnalysis(clauseText: string): any {
   detected_references.push("Restatement (Second) of Contracts");
   detected_references.push("Uniform Commercial Code (UCC)");
   
+  // Extract specific problematic text snippets for citations
+  const detected_citations = [];
+  const detected_problematicText = [];
+  
+  // Look for specific problematic phrases in the clause
+  if (clause_lower.includes('reasonable')) {
+    const reasonableMatches = clauseText.match(/[^.]*reasonable[^.]*/gi);
+    if (reasonableMatches) {
+      detected_citations.push(...reasonableMatches.slice(0, 2));
+      detected_problematicText.push("Use of subjective term 'reasonable'");
+    }
+  }
+  
+  if (clause_lower.includes('material breach')) {
+    const materialMatches = clauseText.match(/[^.]*material[^.]*breach[^.]*/gi);
+    if (materialMatches) {
+      detected_citations.push(...materialMatches.slice(0, 1));
+      detected_problematicText.push("Undefined 'material breach' standard");
+    }
+  }
+  
+  if (clause_lower.includes('best efforts')) {
+    const effortsMatches = clauseText.match(/[^.]*best efforts[^.]*/gi);
+    if (effortsMatches) {
+      detected_citations.push(...effortsMatches.slice(0, 1));
+      detected_problematicText.push("Vague 'best efforts' obligation");
+    }
+  }
+  
+  if (clause_lower.includes('perpetuity') || clause_lower.includes('forever')) {
+    const perpetuityMatches = clauseText.match(/[^.]*(?:perpetuity|forever)[^.]*/gi);
+    if (perpetuityMatches) {
+      detected_citations.push(...perpetuityMatches.slice(0, 1));
+      detected_problematicText.push("Overly broad temporal scope");
+    }
+  }
+  
+  // Determine risk level based on detected issues
+  let riskLevel = 'medium';
+  if (detected_risks.length > 3 || detected_ambiguities.length > 3) {
+    riskLevel = 'high';
+  } else if (detected_risks.length === 0 && detected_ambiguities.length <= 1) {
+    riskLevel = 'low';
+  }
+
   return {
     ambiguities: detected_ambiguities.slice(0, 5),
     risks: detected_risks.slice(0, 5),
     recommendations: detected_recommendations.slice(0, 5),
     missingElements: detected_missing.slice(0, 4),
     references: detected_references.slice(0, 3),
+    citations: detected_citations.slice(0, 3),
+    problematicText: detected_problematicText.slice(0, 3),
+    riskLevel: riskLevel,
     fallback: true,
     source: "enhanced_fallback"
   };

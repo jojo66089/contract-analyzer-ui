@@ -122,6 +122,68 @@ export default function SummaryInsightsPanel({ insights, language }: SummaryInsi
         </CardContent>
       </Card>
 
+      {/* New Problematic Clauses Section with Citations */}
+      {insights.problematicClauses && insights.problematicClauses.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center">
+              <AlertTriangle className="mr-2 h-5 w-5 text-orange-500" />
+              {isSpanish ? "Cláusulas Problemáticas con Citas" : "Problematic Clauses with Citations"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-3">
+              {insights.problematicClauses.map((problematicClause, index) => (
+                <li key={index} className="p-3 bg-orange-50 border-l-4 border-orange-500 rounded">
+                  <div className="flex items-start justify-between mb-2">
+                    <Badge variant="secondary" className="mb-1">
+                      📝
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {isSpanish ? "ID:" : "ID:"} {problematicClause.clauseId}
+                    </span>
+                  </div>
+                  
+                  <h4 className="text-sm font-semibold text-orange-800 mb-2">
+                    {problematicClause.title}
+                  </h4>
+                  
+                  {/* Issues */}
+                  <div className="mb-2">
+                    <p className="text-xs font-medium text-orange-700 mb-1">
+                      {isSpanish ? "Problemas identificados:" : "Issues identified:"}
+                    </p>
+                    <ul className="space-y-1">
+                      {problematicClause.issues.map((issue, issueIndex) => (
+                        <li key={issueIndex} className="text-xs text-orange-700 ml-2">
+                          • {issue}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  
+                  {/* Citations */}
+                  {problematicClause.citations && problematicClause.citations.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-orange-700 mb-1">
+                        {isSpanish ? "Texto problemático citado:" : "Problematic text cited:"}
+                      </p>
+                      <ul className="space-y-1">
+                        {problematicClause.citations.map((citation, citationIndex) => (
+                          <li key={citationIndex} className="text-xs text-orange-600 ml-2 italic bg-orange-100 p-1 rounded">
+                            "{citation}"
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-lg flex items-center">

@@ -152,6 +152,7 @@ function generateEnhancedMockSummary(clauseAnalyses: any[]): any {
   const allReferences = new Set<string>();
   const unfairClauses: Array<{clauseId: string, description: string}> = [];
   const criticalIssues: string[] = [];
+  const problematicClauses: Array<{clauseId: string, title: string, issues: string[], citations: string[]}> = [];
   
   let totalRiskScore = 0;
   let riskCount = 0;
@@ -195,9 +196,13 @@ function generateEnhancedMockSummary(clauseAnalyses: any[]): any {
       // High risk clause detection
       if (analysis.risks.length > 2) {
         highRiskClauses++;
+        const clauseTitle = item.clauseTitle || `Clause ${item.clauseId}`;
+        const citation = analysis.citations?.[0] || analysis.problematicText?.[0] || '';
         unfairClauses.push({
           clauseId: item.clauseId,
-          description: `High-risk clause with ${analysis.risks.length} identified concerns`
+          description: `High-risk clause with ${analysis.risks.length} identified concerns`,
+          clauseTitle: clauseTitle,
+          citation: citation
         });
       }
     }
@@ -215,6 +220,41 @@ function generateEnhancedMockSummary(clauseAnalyses: any[]): any {
     // Collect references
     if (Array.isArray(analysis.references)) {
       analysis.references.forEach((ref: string) => allReferences.add(ref));
+    }
+    
+    // Build problematic clauses with citations
+    if ((analysis.risks && analysis.risks.length > 0) || 
+        (analysis.ambiguities && analysis.ambiguities.length > 1) ||
+        (analysis.citations && analysis.citations.length > 0)) {
+      
+      const clauseTitle = item.clauseTitle || `Clause ${item.clauseId}`;
+      const issues = [];
+      const citations = [];
+      
+      // Combine risks and ambiguities as issues
+      if (analysis.risks) {
+        issues.push(...analysis.risks.slice(0, 3));
+      }
+      if (analysis.ambiguities) {
+        issues.push(...analysis.ambiguities.slice(0, 2));
+      }
+      
+      // Add citations and problematic text
+      if (analysis.citations) {
+        citations.push(...analysis.citations.slice(0, 2));
+      }
+      if (analysis.problematicText) {
+        citations.push(...analysis.problematicText.slice(0, 1));
+      }
+      
+      if (issues.length > 0) {
+        problematicClauses.push({
+          clauseId: item.clauseId,
+          title: clauseTitle,
+          issues: issues.slice(0, 3),
+          citations: citations.slice(0, 3)
+        });
+      }
     }
   }
   
@@ -294,6 +334,7 @@ function generateEnhancedMockSummary(clauseAnalyses: any[]): any {
     missingClauses: limitedMissing,
     keyFindings: keyFindings.slice(0, 6),
     actionableSuggestions: limitedRecommendations,
+    problematicClauses: problematicClauses.slice(0, 8),
     enhanced: true,
     analysisMetrics: {
       totalClauses: clauseAnalyses.length,
