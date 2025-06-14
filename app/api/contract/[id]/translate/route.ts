@@ -32,10 +32,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       analysesToTranslate = [analysis];
     } else {
       // Get all clause analyses
-      for (const clause of contract.clauses) {
-        const analysis = await getClauseAnalysis(sessionId, contractId, clause.id);
-        if (analysis) {
-          analysesToTranslate.push(analysis);
+      const contractWithClauses = contract as any;
+      if (contractWithClauses.clauses && Array.isArray(contractWithClauses.clauses)) {
+        for (const clause of contractWithClauses.clauses) {
+          const analysis = await getClauseAnalysis(sessionId, contractId, clause.id);
+          if (analysis) {
+            analysesToTranslate.push(analysis);
+          }
         }
       }
     }

@@ -93,13 +93,13 @@ export async function getClauseAnalysis(sessionId: string, contractId: string, c
 }
 
 export async function storeContract(sessionId: string, contract: Contract) {
-  const client = getRedisClient();
-  await client.hset(`contracts:${sessionId}`, contract.id, JSON.stringify(contract));
+  await redis.hset(`contracts:${sessionId}`, { [contract.id]: JSON.stringify(contract) });
 }
 
 export async function listContracts(sessionId: string): Promise<Contract[]> {
-  const client = getRedisClient();
-  const all = await client.hgetall(`contracts:${sessionId}`);
+  const all = await redis.hgetall(`contracts:${sessionId}`);
   if (!all) return [];
-  return Object.values(all).map((v) => typeof v === 'string' ? JSON.parse(v) as Contract : null).filter(Boolean);
+  return Object.values(all)
+    .map((v) => typeof v === 'string' ? JSON.parse(v) as Contract : null)
+    .filter((contract): contract is Contract => contract !== null);
 } 

@@ -49,7 +49,7 @@ function generateMockSummary(clauseAnalyses: any[]): any {
   const allRisks = new Set<string>();
   const allRecommendations = new Set<string>();
   const allMissingElements = new Set<string>();
-  const unfairClauses: Array<{clauseId: string, description: string}> = [];
+  const unfairClauses: Array<{clauseId: string, description: string, clauseTitle?: string, citation?: string}> = [];
   
   let totalRiskScore = 0;
   let riskCount = 0;
@@ -150,7 +150,7 @@ function generateEnhancedMockSummary(clauseAnalyses: any[]): any {
   const allRecommendations = new Set<string>();
   const allMissingElements = new Set<string>();
   const allReferences = new Set<string>();
-  const unfairClauses: Array<{clauseId: string, description: string}> = [];
+  const unfairClauses: Array<{clauseId: string, description: string, clauseTitle?: string, citation?: string}> = [];
   const criticalIssues: string[] = [];
   const problematicClauses: Array<{clauseId: string, title: string, issues: string[], citations: string[]}> = [];
   
@@ -358,10 +358,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Contract not found' }, { status: 404 });
     }
     
+    // Check if contract has clauses array
+    const contractWithClauses = contract as any;
+    if (!contractWithClauses.clauses || !Array.isArray(contractWithClauses.clauses)) {
+      console.log('Contract has no clauses array, returning default summary');
+      return NextResponse.json({ summary: DEFAULT_SUMMARY });
+    }
+    
     // Get all clause analyses from Redis
     const clauseAnalyses = [];
-    console.log(`Summary route - Checking analyses for ${contract.clauses.length} clauses`);
-    for (const clause of contract.clauses) {
+    console.log(`Summary route - Checking analyses for ${contractWithClauses.clauses.length} clauses`);
+    for (const clause of contractWithClauses.clauses) {
       console.log(`Summary route - Fetching analysis for clause ${clause.id}`);
       const analysis = await getClauseAnalysis(sessionId, contractId, clause.id);
       console.log(`Summary route - Analysis for ${clause.id}:`, analysis ? 'found' : 'not found');
@@ -373,7 +380,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         });
       }
     }
-    console.log(`Summary route - Found ${clauseAnalyses.length} analyses out of ${contract.clauses.length} clauses`);
+    console.log(`Summary route - Found ${clauseAnalyses.length} analyses out of ${contractWithClauses.clauses.length} clauses`);
     
     if (!clauseAnalyses.length) {
       console.log('No analyses found, returning default summary');

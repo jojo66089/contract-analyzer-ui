@@ -24,4 +24,8 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.tsLegal/
+next-env.d.ts
+
+# test files (commented out since test/data/05-versions-space.pdf is required for build)
+# test/
+Legal/

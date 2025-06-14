@@ -205,7 +205,7 @@ export function splitClauses(text: string): Clause[] {
   let idx = 0;
   
   // Strategy 1: Look for numbered sections with § symbol or Roman numerals
-  const sectionRegex = /(?:^|\n)(§\s*[\dIVXLC]+\.?\d*|[IVX]+\.\s*|Section\s+[\dIVXLC]+\.?\d*|Article\s+[\dIVXLC]+\.?\d*)\s*([^\n]*?)(?=\n(?:§\s*[\dIVXLC]+\.?\d*|[IVX]+\.\s*|Section\s+[\dIVXLC]+\.?\d*|Article\s+[\dIVXLC]+\.?\d*|\n\s*$))/gims;
+  const sectionRegex = /(?:^|\n)(§\s*[\dIVXLC]+\.?\d*|[IVX]+\.\s*|Section\s+[\dIVXLC]+\.?\d*|Article\s+[\dIVXLC]+\.?\d*)\s*([\s\S]*?)(?=\n(?:§\s*[\dIVXLC]+\.?\d*|[IVX]+\.\s*|Section\s+[\dIVXLC]+\.?\d*|Article\s+[\dIVXLC]+\.?\d*|\n\s*$))/gim;
   
   let match;
   let matchFound = false;
@@ -234,7 +234,7 @@ export function splitClauses(text: string): Clause[] {
   // Strategy 2: If no sections found, look for numbered paragraphs
   if (clauses.length === 0) {
     console.log('splitClauses: No sections found, trying numbered paragraphs');
-    const numberedRegex = /(?:^|\n)(\d+\.?\d*)\s*([^\n]*?)(?=\n\d+\.?\d*\s*|\n\s*$)/gims;
+    const numberedRegex = /(?:^|\n)(\d+\.?\d*)\s*([\s\S]*?)(?=\n\d+\.?\d*\s*|\n\s*$)/gim;
     
     while ((match = numberedRegex.exec(cleanedText)) !== null) {
       matchFound = true;

@@ -174,4 +174,18 @@ export const DUMMY_SUMMARY_INSIGHTS: SummaryInsights = {
     "Clarify payment triggers and consider revising the late payment interest rate.",
     "Add a section detailing how formal notices should be exchanged.",
   ],
+  problematicClauses: [
+    {
+      clauseId: "2",
+      title: "Payment Terms",
+      issues: ["5% monthly interest on late payments may be excessively high", "Unclear completion criteria"],
+      citations: ["Late payments incur a 5% monthly interest", "upon completion"]
+    },
+    {
+      clauseId: "5",
+      title: "Limitation of Liability",
+      issues: ["Liability cap heavily favors Service Provider", "Consequential damages definition unclear"],
+      citations: ["liability shall not exceed the total fees paid", "Neither party is liable for consequential damages"]
+    }
+  ],
 }
