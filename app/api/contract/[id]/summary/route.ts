@@ -402,7 +402,11 @@ Please provide a JSON response with:
 
 Return only the JSON object.`;
 
-      const response = await fetch('/api/llm', {
+      const baseUrl = process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}` 
+        : process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      
+      const response = await fetch(`${baseUrl}/api/llm`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

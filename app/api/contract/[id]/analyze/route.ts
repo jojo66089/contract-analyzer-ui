@@ -117,7 +117,11 @@ async function analyzeClause(clauseText: string) {
   try {
     // Call your Gradio Space for legal analysis
     console.log('Calling Gradio Space for legal analysis...');
-    const response = await fetch('/api/llm', {
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    
+    const response = await fetch(`${baseUrl}/api/llm`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

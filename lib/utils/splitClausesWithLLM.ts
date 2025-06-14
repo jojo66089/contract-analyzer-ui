@@ -19,7 +19,11 @@ export async function splitClausesWithLLM(contractText: string): Promise<Clause[
 
   try {
     // Call our LLM API specifically for clause separation
-    const response = await fetch('/api/llm/split-clauses', {
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    
+    const response = await fetch(`${baseUrl}/api/llm/split-clauses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -91,19 +95,25 @@ function fallbackClauseSplit(contractText: string): Clause[] {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  // Enhanced patterns for clause detection
+  // Enhanced patterns for clause detection - improved to capture full titles
   const patterns = [
-    // Numbered sections with titles (e.g., "1. Definitions", "Section 1 - Payment Terms")
-    /(?:^|\n\n)\s*((?:Section|Article|Clause)\s+\d+\.?\s*[-–—]?\s*[^\n]+|^\s*\d+\.?\s+[A-Z][^\n]+?)[\.\:]?\s*\n([\s\S]*?)(?=\n\n\s*(?:Section|Article|Clause)\s+\d+|\n\n\s*\d+\.|\n\n\s*[A-Z\s]{10,}\s*\n|$)/gim,
+    // Main numbered sections (1., 2., 3., etc.) - MOST COMMON PATTERN
+    /(?:^|\n\n)\s*(\d+\.?\s+[A-Z][^\n]*?)[\.\:]?\s*\n([\s\S]*?)(?=\n\n\s*\d+\.|\n\n\s*[A-Z\s]{8,}\s*\n|$)/gim,
+    
+    // Sub-numbered sections (1.1, 1.2, etc.)
+    /(?:^|\n)\s*(\d+\.\d+\s+[^\n]*?)[\.\:]?\s*\n([\s\S]*?)(?=\n\s*\d+\.\d+|\n\s*\d+\.|\n\n|$)/gim,
+    
+    // Section/Article references
+    /(?:^|\n\n)\s*((?:Section|Article|Clause)\s+\d+\.?\s*[-–—]?\s*[^\n]+?)[\.\:]?\s*\n([\s\S]*?)(?=\n\n\s*(?:Section|Article|Clause)\s+\d+|\n\n\s*\d+\.|\n\n\s*[A-Z\s]{8,}\s*\n|$)/gim,
+    
+    // All caps headings followed by content (for major sections)
+    /(?:^|\n\n)\s*([A-Z\s]{8,})\s*\n([\s\S]*?)(?=\n\n\s*[A-Z\s]{8,}\s*\n|\n\n\s*\d+\.|\n\n\s*[IVX]+\.|$)/gim,
     
     // Roman numerals (I., II., III., etc.)
-    /(?:^|\n\n)\s*([IVX]+\.?\s+[^\n]+?)[\.\:]?\s*\n([\s\S]*?)(?=\n\n\s*[IVX]+\.|\n\n\s*\d+\.|\n\n\s*[A-Z\s]{10,}\s*\n|$)/gim,
+    /(?:^|\n\n)\s*([IVX]+\.?\s+[^\n]+?)[\.\:]?\s*\n([\s\S]*?)(?=\n\n\s*[IVX]+\.|\n\n\s*\d+\.|\n\n\s*[A-Z\s]{8,}\s*\n|$)/gim,
     
     // Lettered sections (A., B., C., etc.)
-    /(?:^|\n\n)\s*([A-Z]\.?\s+[^\n]+?)[\.\:]?\s*\n([\s\S]*?)(?=\n\n\s*[A-Z]\.|\n\n\s*\d+\.|\n\n\s*[A-Z\s]{10,}\s*\n|$)/gim,
-
-    // All caps headings followed by content
-    /(?:^|\n\n)\s*([A-Z\s]{5,})\s*\n([\s\S]*?)(?=\n\n\s*[A-Z\s]{5,}\s*\n|\n\n\s*\d+\.|\n\n\s*[IVX]+\.|$)/gim
+    /(?:^|\n\n)\s*([A-Z]\.?\s+[^\n]+?)[\.\:]?\s*\n([\s\S]*?)(?=\n\n\s*[A-Z]\.|\n\n\s*\d+\.|\n\n\s*[A-Z\s]{8,}\s*\n|$)/gim
   ];
 
   for (const pattern of patterns) {
@@ -114,7 +124,7 @@ function fallbackClauseSplit(contractText: string): Clause[] {
       const [fullMatch, heading, content] = match;
       const clauseText = (heading + '\n' + content).trim();
       
-      if (isValidClauseText(clauseText)) {
+      if (isValidClauseText(clauseText) && clauseText.length > 50) {
         const title = extractTitleFromText(heading) || `Clause ${idx + 1}`;
         
         clauses.push({
@@ -127,23 +137,29 @@ function fallbackClauseSplit(contractText: string): Clause[] {
       }
     }
     
-    if (clauses.length > 0) {
-      break; // Stop at first successful pattern
+    // Use first pattern that gives us reasonable results
+    if (clauses.length >= 3) {
+      console.log(`fallbackClauseSplit - Found ${clauses.length} clauses with pattern ${patterns.indexOf(pattern) + 1}`);
+      break;
+    } else if (clauses.length > 0) {
+      console.log(`fallbackClauseSplit - Pattern ${patterns.indexOf(pattern) + 1} found ${clauses.length} clauses, trying next pattern`);
+      clauses.length = 0; // Clear and try next pattern
+      idx = 0;
     }
   }
 
-  // If no structured clauses found, split by paragraphs
+  // If no structured clauses found, split by meaningful paragraphs
   if (clauses.length === 0) {
-    console.log('fallbackClauseSplit - No structured clauses found, splitting by paragraphs');
+    console.log('fallbackClauseSplit - No structured clauses found, splitting by meaningful paragraphs');
     const paragraphs = cleanedText.split(/\n\s*\n/);
     
     for (let i = 0; i < paragraphs.length; i++) {
       const para = paragraphs[i].trim();
-      if (para && isValidClauseText(para)) {
+      if (para && isValidClauseText(para) && para.length > 100) { // Only longer paragraphs
         clauses.push({
           id: `paragraph-${i + 1}`,
           text: para,
-          title: extractTitleFromText(para) || `Paragraph ${i + 1}`,
+          title: extractTitleFromText(para) || `Section ${i + 1}`,
           riskLevel: 'medium'
         });
       }
@@ -161,7 +177,7 @@ function fallbackClauseSplit(contractText: string): Clause[] {
     });
   }
 
-  console.log(`fallbackClauseSplit - Extracted ${clauses.length} clauses`);
+  console.log(`fallbackClauseSplit - Final result: ${clauses.length} clauses extracted`);
   return clauses;
 }
 
@@ -198,13 +214,23 @@ function extractTitleFromText(text: string): string | undefined {
   
   const firstLine = lines[0];
   
-  // Clean up section markers and get title
-  const cleanTitle = firstLine
+  // Clean up section markers and get title - preserve full titles
+  let cleanTitle = firstLine
     .replace(/^(Section|Article|Clause|§)\s*[\dIVXLC]+[.)]?\s*[-–—]?\s*/i, '')
-    .replace(/^\d+[.)]?\s*[-–—]?\s*/, '')
-    .replace(/^[A-Z][.)]?\s*[-–—]?\s*/, '')
+    .replace(/^\d+\.\s*/, '') // Just remove the number and dot, don't be too aggressive
     .replace(/[.:]+$/, '')
     .trim();
+  
+  // If we ended up with something too short or the title starts with a single letter
+  // likely we removed too much, so use a more conservative approach
+  if (cleanTitle.length < 5 || (cleanTitle.length > 0 && cleanTitle[0] && cleanTitle[0] !== cleanTitle[0].toUpperCase())) {
+    // More conservative: just remove number and period
+    cleanTitle = firstLine
+      .replace(/^\d+\.\s*/, '')
+      .replace(/^\d+\s*/, '') // Also handle cases without periods
+      .replace(/[.:]+$/, '')
+      .trim();
+  }
   
   if (cleanTitle && cleanTitle.length > 0 && cleanTitle.length < 100) {
     return cleanTitle;

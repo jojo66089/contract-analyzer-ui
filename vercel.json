@@ -1,37 +1,17 @@
 {
-  "version": 2,
-  "env": {
-    "ADOBE_PDF_SERVICES_CLIENT_ID": "demo",
-    "ADOBE_PDF_SERVICES_CLIENT_SECRET": "demo",
-    "DEBUG": "true",
-    "NODE_ENV": "production"
-  },
-  "buildCommand": "npm run build",
-  "installCommand": "npm install --legacy-peer-deps",
   "functions": {
-    "app/api/upload/route.ts": {
-      "memory": 1024,
-      "maxDuration": 60
-    },
-    "app/api/contract/*/analyze/route.ts": {
-      "memory": 1024,
-      "maxDuration": 60
-    },
-    "app/api/contract/*/summary/route.ts": {
-      "memory": 1024,
-      "maxDuration": 60
-    },
-    "app/api/contract/*/translate/route.ts": {
-      "memory": 1024,
-      "maxDuration": 60
-    },
-    "app/api/contract/download-pdf/route.ts": {
-      "memory": 1024,
-      "maxDuration": 60
-    },
-    "app/api/llm/route.ts": {
-      "memory": 1024,
-      "maxDuration": 60
+    "api/analyze.py": {
+      "runtime": "python3.9"
     }
-  }
+  },
+  "routes": [
+    {
+      "src": "/api/analyze",
+      "dest": "/api/analyze.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/analyze.py"
+    }
+  ]
 }

@@ -38,7 +38,8 @@ const sanitizeSummary = (summary: any): SummaryInsights => {
     unfairClauses: [],
     missingClauses: [],
     keyFindings: [],
-    actionableSuggestions: []
+    actionableSuggestions: [],
+    problematicClauses: []
   };
 
   return {
@@ -67,6 +68,24 @@ const sanitizeSummary = (summary: any): SummaryInsights => {
           return { 
             clauseId: 'unknown', 
             description: typeof clause === 'string' ? clause : String(clause)
+          };
+        })
+      : [],
+    problematicClauses: Array.isArray(summary.problematicClauses) 
+      ? summary.problematicClauses.map((clause: any) => {
+          if (typeof clause === 'object' && clause !== null && !Array.isArray(clause)) {
+            return {
+              clauseId: String(clause.clauseId || 'unknown'),
+              title: String(clause.title || 'Unknown Clause'),
+              issues: Array.isArray(clause.issues) ? clause.issues.map((issue: any) => String(issue)) : [],
+              citations: Array.isArray(clause.citations) ? clause.citations.map((citation: any) => String(citation)) : []
+            };
+          }
+          return { 
+            clauseId: 'unknown',
+            title: 'Unknown Clause',
+            issues: [],
+            citations: []
           };
         })
       : []

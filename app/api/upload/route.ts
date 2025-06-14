@@ -75,31 +75,45 @@ export async function POST(request: NextRequest) {
     const contractId = `doc-${Date.now()}`;
     console.log('Upload Route - Generated contract ID:', contractId);
     
-    // Extract clauses from the contract text using LLM first, then fallback
+    // Extract clauses from the contract text using enhanced LLM splitting
     console.log('Upload Route - Extracting clauses from contract text');
     let clauses;
     try {
-      // Try LLM-based clause splitting first for better accuracy
-      console.log('Upload Route - Attempting LLM-based clause splitting');
+      // Always try LLM-based clause splitting first for better accuracy
+      console.log('Upload Route - Attempting enhanced LLM-based clause splitting');
       try {
         clauses = await splitClausesWithLLM(text);
-        console.log(`Upload Route - LLM extracted ${clauses.length} clauses successfully`);
+        console.log(`Upload Route - Enhanced LLM extracted ${clauses.length} clauses successfully`);
+        
+        // Validate LLM results - they should be reasonable in number and length
+        if (clauses.length === 0 || (clauses.length === 1 && clauses[0].text.length > text.length * 0.8)) {
+          console.warn('Upload Route - LLM results seem insufficient, trying fallback');
+          throw new Error('LLM clause splitting returned insufficient results');
+        }
       } catch (llmError) {
-        console.warn('Upload Route - LLM clause splitting failed, falling back to regex method:', llmError);
+        console.warn('Upload Route - LLM clause splitting failed, using enhanced fallback method:', llmError);
         clauses = splitClauses(text);
-        console.log(`Upload Route - Fallback method extracted ${clauses.length} clauses`);
+        console.log(`Upload Route - Enhanced fallback method extracted ${clauses.length} clauses`);
       }
       
-      // Validate that we got meaningful clauses
-      if (clauses.length === 0 || (clauses.length === 1 && clauses[0].text.length < 100)) {
-        console.warn('Upload Route - Insufficient clauses extracted, text may be corrupted');
+      // Final validation that we got meaningful clauses
+      if (clauses.length === 0) {
+        console.warn('Upload Route - No clauses extracted at all');
         return NextResponse.json({ 
-          error: 'Could not extract meaningful content from the document. The file may be corrupted, password-protected, or contain only images.',
-          details: `Extracted ${clauses.length} clauses with ${text.length} total characters`
+          error: 'Could not extract any meaningful content from the document. The file may be corrupted, password-protected, or contain only images.',
+          details: `No clauses extracted from ${text.length} characters of text`
         }, { status: 400 });
       }
+      
+      // Check if we only got one huge clause (likely means splitting failed)
+      if (clauses.length === 1 && clauses[0].text.length > text.length * 0.8) {
+        console.warn('Upload Route - Only one large clause extracted, may indicate splitting failure');
+        // Don't error, but log the issue for monitoring
+        console.log('Upload Route - Single clause length:', clauses[0].text.length, 'vs total text:', text.length);
+      }
+      
     } catch (clauseError) {
-      console.error('Upload Route - Clause extraction failed:', clauseError);
+      console.error('Upload Route - Clause extraction failed completely:', clauseError);
       return NextResponse.json({ 
         error: 'Failed to parse document content. The file appears to contain corrupted or binary data.',
         details: clauseError instanceof Error ? clauseError.message : String(clauseError)

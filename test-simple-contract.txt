@@ -1,0 +1,32 @@
+SIMPLE LOAN AGREEMENT
+
+1. DEFINITIONS AND INTERPRETATION
+
+In this Agreement, unless the context otherwise requires:
+
+(a) "Borrower" means the party receiving the loan
+(b) "Lender" means the party providing the loan
+(c) "Principal Amount" means the sum being borrowed
+
+2. LOAN TERMS AND CONDITIONS
+
+The principal amount of the loan shall be One Million Dollars ($1,000,000).
+
+The borrower agrees to repay the loan in accordance with the terms set forth herein.
+
+3. INTEREST RATE AND PAYMENT
+
+Interest shall accrue at a rate of five percent (5%) per annum.
+
+Payments shall be due on the first day of each month.
+
+4. DEFAULT AND REMEDIES
+
+In the event of default, the Lender may:
+(a) Accelerate the loan
+(b) Pursue legal remedies
+(c) Charge additional fees
+
+5. GOVERNING LAW
+
+This Agreement shall be governed by the laws of the State of California. 
