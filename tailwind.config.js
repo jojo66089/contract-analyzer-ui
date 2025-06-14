@@ -7,6 +7,10 @@ module.exports = {
     './app/**/*.{ts,tsx}',
     './src/**/*.{ts,tsx}',
   ],
+  // Production optimizations
+  future: {
+    hoverOnlyWhenSupported: true,
+  },
   prefix: "",
   theme: {
     container: {

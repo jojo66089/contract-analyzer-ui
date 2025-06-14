@@ -1,6 +1,5 @@
 import { Buffer } from 'buffer';
 import * as Tesseract from 'tesseract.js';
-import { createCanvas } from 'canvas';
 // Use require for mammoth due to export style
 import * as mammoth from 'mammoth';
 const {
