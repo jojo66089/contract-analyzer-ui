@@ -15,6 +15,41 @@ function Calendar({
   showOutsideDays = true,
   ...props
 }: CalendarProps) {
+  // Custom navigation component for v9
+  function CustomNavigation({
+    nextMonth,
+    previousMonth,
+    goToMonth,
+    ...navProps
+  }: any) {
+    return (
+      <div className="space-x-1 flex items-center">
+        <button
+          type="button"
+          onClick={() => goToMonth(previousMonth)}
+          className={cn(
+            buttonVariants({ variant: "outline" }),
+            "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 absolute left-1"
+          )}
+          aria-label="Previous month"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => goToMonth(nextMonth)}
+          className={cn(
+            buttonVariants({ variant: "outline" }),
+            "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 absolute right-1"
+          )}
+          aria-label="Next month"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
@@ -54,8 +89,12 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        IconLeft: ({ ...props }) => <ChevronLeft className="h-4 w-4" />,
-        IconRight: ({ ...props }) => <ChevronRight className="h-4 w-4" />,
+        Chevron: ({ orientation, ...props }) =>
+          orientation === "left" ? (
+            <ChevronLeft className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          ),
       }}
       {...props}
     />
