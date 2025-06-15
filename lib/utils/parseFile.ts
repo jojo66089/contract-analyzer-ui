@@ -1,9 +1,7 @@
 import { Buffer } from "buffer";
-// Use require for pdf-parse since it doesn't have proper TypeScript definitions
-// We use dynamic import to avoid issues with server-side rendering
+// Use pdfjs-dist for reliable PDF parsing
 import * as fs from 'fs';
 import * as path from 'path';
-import pdfParse from 'pdf-parse';
 
 /**
  * Clean PDF text by removing binary data and formatting issues
@@ -67,28 +65,62 @@ function isValidText(text: string): boolean {
 }
 
 /**
- * Improved PDF parsing using pdf-parse with better error handling
+ * Improved PDF parsing using pdfjs-dist with better error handling
  */
-async function parsePdfWithPdfParse(buffer: Buffer): Promise<string> {
-  console.log('parsePdfWithPdfParse - Starting pdf-parse extraction');
+async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
+  console.log('parsePdfWithPdfjs - Starting pdfjs-dist extraction');
   
   try {
-    const data = await pdfParse(buffer);
+    // Dynamic import to avoid SSR issues
+    const pdfjsLib = await import('pdfjs-dist');
     
-    console.log(`parsePdfWithPdfParse - Extracted ${data.text.length} characters from ${data.numpages} pages`);
+    // Disable worker for server-side usage
+    if (pdfjsLib.GlobalWorkerOptions) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+    }
     
-    if (data.text && data.text.length > 50) {
-      const cleaned = cleanPdfText(data.text);
+    const loadingTask = pdfjsLib.getDocument({
+      data: buffer,
+      verbosity: 0, // Reduce console output
+    });
+    
+    const pdf = await loadingTask.promise;
+    console.log(`parsePdfWithPdfjs - PDF loaded with ${pdf.numPages} pages`);
+    
+    let fullText = '';
+    
+    // Extract text from each page
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      try {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        
+        // Combine text items
+        const pageText = textContent.items
+          .map((item: any) => item.str)
+          .join(' ');
+        
+        fullText += pageText + '\n';
+      } catch (pageError) {
+        console.warn(`parsePdfWithPdfjs - Error extracting page ${pageNum}:`, pageError);
+        // Continue with other pages
+      }
+    }
+    
+    console.log(`parsePdfWithPdfjs - Extracted ${fullText.length} characters from ${pdf.numPages} pages`);
+    
+    if (fullText && fullText.length > 50) {
+      const cleaned = cleanPdfText(fullText);
       if (isValidText(cleaned)) {
-        console.log('parsePdfWithPdfParse - Successfully extracted valid text');
+        console.log('parsePdfWithPdfjs - Successfully extracted valid text');
         return cleaned;
       }
     }
     
-    console.log('parsePdfWithPdfParse - Extracted text is invalid or too short');
+    console.log('parsePdfWithPdfjs - Extracted text is invalid or too short');
     return '';
   } catch (error) {
-    console.error('parsePdfWithPdfParse - Error:', error);
+    console.error('parsePdfWithPdfjs - Error:', error);
     return '';
   }
 }
@@ -142,11 +174,11 @@ function parsePdfFallback(buffer: Buffer): string {
 async function parsePdf(buffer: Buffer): Promise<string> {
   console.log('parsePdf - Starting PDF parsing with multiple methods');
   
-  // Method 1: Try pdf-parse (most reliable)
-  const pdfParseResult = await parsePdfWithPdfParse(buffer);
-  if (pdfParseResult) {
-    console.log('parsePdf - pdf-parse method successful');
-    return pdfParseResult;
+  // Method 1: Try pdfjs-dist (most reliable)
+  const pdfjsResult = await parsePdfWithPdfjs(buffer);
+  if (pdfjsResult) {
+    console.log('parsePdf - pdfjs-dist method successful');
+    return pdfjsResult;
   }
   
   // Method 2: Try fallback parsing
