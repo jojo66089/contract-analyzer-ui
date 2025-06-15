@@ -71,16 +71,21 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
   console.log('parsePdfWithPdfjs - Starting pdfjs-dist extraction');
   
   try {
-    // Dynamic import to avoid SSR issues
-    const pdfjsLib = await import('pdfjs-dist');
+    // Dynamic import to avoid SSR issues - use legacy build for Node.js
+    console.log('parsePdfWithPdfjs - Loading pdfjs-dist legacy build for Node.js compatibility');
+    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
     
     // Disable worker for server-side usage
     if (pdfjsLib.GlobalWorkerOptions) {
       pdfjsLib.GlobalWorkerOptions.workerSrc = '';
     }
     
+    // Convert Buffer to Uint8Array for pdfjs-dist compatibility
+    const uint8Array = new Uint8Array(buffer);
+    console.log('parsePdfWithPdfjs - Converted buffer to Uint8Array, size:', uint8Array.length);
+    
     const loadingTask = pdfjsLib.getDocument({
-      data: buffer,
+      data: uint8Array,
       verbosity: 0, // Reduce console output
     });
     
