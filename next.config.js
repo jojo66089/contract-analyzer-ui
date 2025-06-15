@@ -68,13 +68,24 @@ const nextConfig = {
       config.resolve.alias = {
         ...config.resolve.alias,
         'canvas': false, // Disable canvas for server-side
+        '@napi-rs/canvas': false, // Disable napi-rs canvas for server-side
       }
       
-      // Externalize pdfjs-dist worker for server-side
+      // Configure externals for server-side PDF processing
       config.externals = config.externals || []
       config.externals.push({
+        'canvas': 'canvas',
+        '@napi-rs/canvas': '@napi-rs/canvas',
         'pdfjs-dist/build/pdf.worker.js': 'commonjs pdfjs-dist/build/pdf.worker.js'
       })
+      
+      // Ignore canvas-related warnings in server-side builds
+      config.ignoreWarnings = [
+        /Cannot find module '@napi-rs\/canvas'/,
+        /Cannot polyfill `DOMMatrix`/,
+        /Cannot polyfill `ImageData`/,
+        /Cannot polyfill `Path2D`/,
+      ]
     }
     
     // Production optimizations

@@ -3,6 +3,14 @@ import { Buffer } from "buffer";
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Alternative PDF parsing library
+let pdfParse: any = null;
+try {
+  pdfParse = require('pdf-parse');
+} catch (e) {
+  console.warn('pdf-parse not available, will use fallback methods');
+}
+
 /**
  * Clean PDF text by removing binary data and formatting issues
  */
@@ -75,18 +83,22 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     console.log('parsePdfWithPdfjs - Loading pdfjs-dist legacy build for Node.js compatibility');
     const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
     
-    // Properly configure for server-side usage without worker
+    // Properly configure for server-side usage
     if (pdfjsLib.GlobalWorkerOptions) {
-      // For server-side rendering, we need to disable the worker
-      // Set to empty string to disable worker functionality
+      // For server-side rendering, we need to properly configure the worker
+      // Use the built-in worker from the legacy build
       try {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+        // Set the worker source to the legacy worker path
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.js`;
       } catch (workerError) {
-        // If setting empty string fails, try setting to undefined
+        console.warn('parsePdfWithPdfjs - Could not set CDN worker, trying local worker:', workerError);
         try {
-          (pdfjsLib.GlobalWorkerOptions as any).workerSrc = undefined;
-        } catch (undefinedError) {
-          console.warn('parsePdfWithPdfjs - Could not configure worker options:', undefinedError);
+          // Fallback to local worker if CDN fails
+          pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/build/pdf.worker.js');
+        } catch (localWorkerError) {
+          console.warn('parsePdfWithPdfjs - Could not set local worker, disabling worker:', localWorkerError);
+          // Last resort: disable worker completely by setting to empty string
+          (pdfjsLib.GlobalWorkerOptions as any).workerSrc = '';
         }
       }
     }
@@ -101,6 +113,12 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
       useWorkerFetch: false, // Disable worker fetch for server-side
       isEvalSupported: false, // Disable eval for security
       useSystemFonts: false, // Don't rely on system fonts
+      disableFontFace: true, // Disable font face loading for server-side
+      disableRange: true, // Disable range requests for server-side
+      disableStream: true, // Disable streaming for server-side
+      disableAutoFetch: true, // Disable auto-fetch for server-side
+      cMapUrl: undefined, // Disable CMap loading for server-side
+      standardFontDataUrl: undefined, // Disable standard font data for server-side
     });
     
     const pdf = await loadingTask.promise;
@@ -149,6 +167,36 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     return '';
   } catch (error) {
     console.error('parsePdfWithPdfjs - Error:', error);
+    return '';
+  }
+}
+
+/**
+ * PDF parsing using pdf-parse library (alternative to pdfjs-dist)
+ */
+async function parsePdfWithPdfParse(buffer: Buffer): Promise<string> {
+  console.log('parsePdfWithPdfParse - Starting pdf-parse extraction');
+  
+  try {
+    if (!pdfParse) {
+      console.log('parsePdfWithPdfParse - pdf-parse not available');
+      return '';
+    }
+    
+    const data = await pdfParse(buffer);
+    
+    if (data && data.text && data.text.length > 50) {
+      const cleaned = cleanPdfText(data.text);
+      if (isValidText(cleaned)) {
+        console.log(`parsePdfWithPdfParse - Successfully extracted ${cleaned.length} characters`);
+        return cleaned;
+      }
+    }
+    
+    console.log('parsePdfWithPdfParse - Extracted text is invalid or too short');
+    return '';
+  } catch (error) {
+    console.error('parsePdfWithPdfParse - Error:', error);
     return '';
   }
 }
@@ -315,15 +363,15 @@ function parsePdfEnhancedFallback(buffer: Buffer): string {
 async function parsePdf(buffer: Buffer): Promise<string> {
   console.log('parsePdf - Starting PDF parsing with multiple methods');
   
-  // Method 1: Try pdfjs-dist (most reliable)
+  // Method 1: Try pdf-parse library first (most reliable for server-side)
   try {
-    const pdfjsResult = await parsePdfWithPdfjs(buffer);
-    if (pdfjsResult && pdfjsResult.length > 50) {
-      console.log('parsePdf - pdfjs-dist method successful');
-      return pdfjsResult;
+    const pdfParseResult = await parsePdfWithPdfParse(buffer);
+    if (pdfParseResult && pdfParseResult.length > 50) {
+      console.log('parsePdf - pdf-parse method successful');
+      return pdfParseResult;
     }
-  } catch (pdfjsError) {
-    console.warn('parsePdf - pdfjs-dist method failed:', pdfjsError);
+  } catch (pdfParseError) {
+    console.warn('parsePdf - pdf-parse method failed:', pdfParseError);
   }
   
   // Method 2: Try enhanced fallback parsing
@@ -348,7 +396,18 @@ async function parsePdf(buffer: Buffer): Promise<string> {
     console.warn('parsePdf - Basic fallback method failed:', fallbackError);
   }
   
-  // Method 4: Last resort - return descriptive error
+  // Method 4: Try pdfjs-dist (may fail in server environment)
+  try {
+    const pdfjsResult = await parsePdfWithPdfjs(buffer);
+    if (pdfjsResult && pdfjsResult.length > 50) {
+      console.log('parsePdf - pdfjs-dist method successful');
+      return pdfjsResult;
+    }
+  } catch (pdfjsError) {
+    console.warn('parsePdf - pdfjs-dist method failed:', pdfjsError);
+  }
+  
+  // Method 5: Last resort - return descriptive error
   console.log('parsePdf - All parsing methods failed');
   throw new Error('Failed to extract text from this PDF. The file may be:\n• Password-protected or encrypted\n• Scanned images without OCR text layer\n• Corrupted or using an unsupported PDF format\n• Contains only images or graphics\n\nPlease try:\n• Converting to a text-based PDF\n• Using OCR software first\n• Ensuring the PDF is not password-protected');
 }
