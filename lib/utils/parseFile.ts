@@ -75,9 +75,20 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     console.log('parsePdfWithPdfjs - Loading pdfjs-dist legacy build for Node.js compatibility');
     const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
     
-    // Disable worker for server-side usage
+    // Properly configure for server-side usage without worker
     if (pdfjsLib.GlobalWorkerOptions) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+      // For server-side rendering, we need to disable the worker
+      // Different approaches for different environments
+      try {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+      } catch (workerError) {
+        // If setting empty string fails, try other approaches
+        try {
+          delete pdfjsLib.GlobalWorkerOptions.workerSrc;
+        } catch (deleteError) {
+          console.warn('parsePdfWithPdfjs - Could not configure worker options:', deleteError);
+        }
+      }
     }
     
     // Convert Buffer to Uint8Array for pdfjs-dist compatibility
@@ -87,6 +98,9 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     const loadingTask = pdfjsLib.getDocument({
       data: uint8Array,
       verbosity: 0, // Reduce console output
+      useWorkerFetch: false, // Disable worker fetch for server-side
+      isEvalSupported: false, // Disable eval for security
+      useSystemFonts: false, // Don't rely on system fonts
     });
     
     const pdf = await loadingTask.promise;
@@ -100,12 +114,21 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
         const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
         
-        // Combine text items
+        // Combine text items with proper spacing
         const pageText = textContent.items
-          .map((item: any) => item.str)
+          .map((item: any) => {
+            // Handle text items properly
+            if (typeof item === 'object' && item.str) {
+              return item.str;
+            }
+            return '';
+          })
+          .filter(text => text.trim().length > 0)
           .join(' ');
         
-        fullText += pageText + '\n';
+        if (pageText.trim()) {
+          fullText += pageText + '\n\n';
+        }
       } catch (pageError) {
         console.warn(`parsePdfWithPdfjs - Error extracting page ${pageNum}:`, pageError);
         // Continue with other pages
@@ -126,6 +149,30 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     return '';
   } catch (error) {
     console.error('parsePdfWithPdfjs - Error:', error);
+    return '';
+  }
+}
+
+/**
+ * OCR fallback using Tesseract.js for image-based PDFs
+ * Note: This is computationally expensive and should be used as last resort
+ */
+async function parsePdfWithOCR(buffer: Buffer): Promise<string> {
+  console.log('parsePdfWithOCR - Starting OCR extraction (last resort)');
+  
+  try {
+    // Only attempt OCR in development or if explicitly enabled
+    if (process.env.NODE_ENV === 'production' && !process.env.ENABLE_OCR) {
+      console.log('parsePdfWithOCR - OCR disabled in production');
+      return '';
+    }
+    
+    // This would require converting PDF to images first
+    // For now, we'll skip this implementation as it's very resource-intensive
+    console.log('parsePdfWithOCR - OCR extraction not implemented (resource-intensive)');
+    return '';
+  } catch (error) {
+    console.error('parsePdfWithOCR - Error:', error);
     return '';
   }
 }
@@ -174,28 +221,136 @@ function parsePdfFallback(buffer: Buffer): string {
 }
 
 /**
+ * Enhanced fallback PDF parsing with better text extraction
+ */
+function parsePdfEnhancedFallback(buffer: Buffer): string {
+  console.log('parsePdfEnhancedFallback - Using enhanced fallback PDF parsing');
+  
+  try {
+    const text = buffer.toString('latin1'); // Use latin1 for better binary handling
+    
+    let extractedText = '';
+    
+    // Method 1: Extract text between BT/ET markers (text objects)
+    const textObjectRegex = /BT\s*([\s\S]*?)\s*ET/g;
+    let match;
+    while ((match = textObjectRegex.exec(text)) !== null) {
+      const textObject = match[1];
+      // Extract text from Tj and TJ operators
+      const tjRegex = /\((.*?)\)\s*Tj/g;
+      const tjArrayRegex = /\[(.*?)\]\s*TJ/g;
+      
+      let tjMatch;
+      while ((tjMatch = tjRegex.exec(textObject)) !== null) {
+        const textContent = tjMatch[1];
+        if (textContent && textContent.length > 0) {
+          extractedText += textContent + ' ';
+        }
+      }
+      
+      while ((tjMatch = tjArrayRegex.exec(textObject)) !== null) {
+        const arrayContent = tjMatch[1];
+        // Extract strings from array format
+        const stringRegex = /\((.*?)\)/g;
+        let stringMatch;
+        while ((stringMatch = stringRegex.exec(arrayContent)) !== null) {
+          const textContent = stringMatch[1];
+          if (textContent && textContent.length > 0) {
+            extractedText += textContent + ' ';
+          }
+        }
+      }
+    }
+    
+    // Method 2: Look for readable text patterns
+    if (extractedText.length < 100) {
+      // Extract any parenthesized text that might be content
+      const parenthesizedRegex = /\(([^)]{3,})\)/g;
+      while ((match = parenthesizedRegex.exec(text)) !== null) {
+        const content = match[1];
+        // Filter out PDF commands and keep readable text
+        if (!/^[0-9\s\.\-]+$/.test(content) && !/^[A-Z]{1,3}$/.test(content)) {
+          extractedText += content + ' ';
+        }
+      }
+    }
+    
+    // Method 3: Extract from stream content with better filtering
+    if (extractedText.length < 100) {
+      const streamRegex = /stream\s*([\s\S]*?)\s*endstream/g;
+      while ((match = streamRegex.exec(text)) !== null) {
+        const streamContent = match[1];
+        // Extract readable characters and common words
+        const readableText = streamContent
+          .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .split(' ')
+          .filter(word => word.length > 2 && /[a-zA-Z]/.test(word))
+          .join(' ');
+        
+        if (readableText.length > 10) {
+          extractedText += readableText + ' ';
+        }
+      }
+    }
+    
+    const cleaned = cleanPdfText(extractedText);
+    
+    if (isValidText(cleaned)) {
+      console.log(`parsePdfEnhancedFallback - Successfully extracted ${cleaned.length} characters`);
+      return cleaned;
+    }
+    
+    console.log('parsePdfEnhancedFallback - Enhanced fallback extraction did not produce valid text');
+    return '';
+  } catch (error) {
+    console.error('parsePdfEnhancedFallback - Error:', error);
+    return '';
+  }
+}
+
+/**
  * Main PDF parsing function with multiple fallback methods
  */
 async function parsePdf(buffer: Buffer): Promise<string> {
   console.log('parsePdf - Starting PDF parsing with multiple methods');
   
   // Method 1: Try pdfjs-dist (most reliable)
-  const pdfjsResult = await parsePdfWithPdfjs(buffer);
-  if (pdfjsResult) {
-    console.log('parsePdf - pdfjs-dist method successful');
-    return pdfjsResult;
+  try {
+    const pdfjsResult = await parsePdfWithPdfjs(buffer);
+    if (pdfjsResult && pdfjsResult.length > 50) {
+      console.log('parsePdf - pdfjs-dist method successful');
+      return pdfjsResult;
+    }
+  } catch (pdfjsError) {
+    console.warn('parsePdf - pdfjs-dist method failed:', pdfjsError);
   }
   
-  // Method 2: Try fallback parsing
-  const fallbackResult = parsePdfFallback(buffer);
-  if (fallbackResult) {
-    console.log('parsePdf - Fallback method successful');
-    return fallbackResult;
+  // Method 2: Try enhanced fallback parsing
+  try {
+    const enhancedFallbackResult = parsePdfEnhancedFallback(buffer);
+    if (enhancedFallbackResult && enhancedFallbackResult.length > 50) {
+      console.log('parsePdf - Enhanced fallback method successful');
+      return enhancedFallbackResult;
+    }
+  } catch (enhancedError) {
+    console.warn('parsePdf - Enhanced fallback method failed:', enhancedError);
   }
   
-  // Method 3: Last resort - return descriptive error
+  // Method 3: Try basic fallback parsing
+  try {
+    const fallbackResult = parsePdfFallback(buffer);
+    if (fallbackResult && fallbackResult.length > 50) {
+      console.log('parsePdf - Basic fallback method successful');
+      return fallbackResult;
+    }
+  } catch (fallbackError) {
+    console.warn('parsePdf - Basic fallback method failed:', fallbackError);
+  }
+  
+  // Method 4: Last resort - return descriptive error
   console.log('parsePdf - All parsing methods failed');
-  throw new Error('Failed to extract text from this PDF. The file appears to contain binary data, is encrypted, or uses a format our parser cannot read. Please try a different PDF file.');
+  throw new Error('Failed to extract text from this PDF. The file may be:\n• Password-protected or encrypted\n• Scanned images without OCR text layer\n• Corrupted or using an unsupported PDF format\n• Contains only images or graphics\n\nPlease try:\n• Converting to a text-based PDF\n• Using OCR software first\n• Ensuring the PDF is not password-protected');
 }
 
 /**

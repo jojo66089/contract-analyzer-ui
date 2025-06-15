@@ -51,10 +51,19 @@ export async function POST(request: NextRequest) {
       console.error('Upload Route - Failed to parse file:', parseError);
       
       if (file.type === 'application/pdf') {
-        // For PDFs, return a proper error instead of trying to proceed
+        // For PDFs, return a proper error with helpful suggestions
+        const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+        
         return NextResponse.json({ 
-          error: 'Failed to extract text from PDF. The file may be password-protected, corrupted, or contain only images. Please try a different PDF or contact support.',
-          details: parseError instanceof Error ? parseError.message : String(parseError)
+          error: 'Failed to extract text from PDF',
+          details: errorMessage,
+          suggestions: [
+            'Ensure the PDF is not password-protected',
+            'Try converting scanned PDFs to text-based PDFs using OCR',
+            'Check if the PDF contains actual text (not just images)',
+            'Try a different PDF file format or version',
+            'Contact support if the issue persists'
+          ]
         }, { status: 400 });
       } else {
         // Fallback to raw text for non-PDF files

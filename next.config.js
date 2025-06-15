@@ -63,6 +63,20 @@ const nextConfig = {
       )
     }
     
+    // Configure pdfjs-dist for server-side usage
+    if (isServer) {
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        'canvas': false, // Disable canvas for server-side
+      }
+      
+      // Externalize pdfjs-dist worker for server-side
+      config.externals = config.externals || []
+      config.externals.push({
+        'pdfjs-dist/build/pdf.worker.js': 'commonjs pdfjs-dist/build/pdf.worker.js'
+      })
+    }
+    
     // Production optimizations
     if (!dev && !isServer) {
       config.optimization.splitChunks.cacheGroups = {
