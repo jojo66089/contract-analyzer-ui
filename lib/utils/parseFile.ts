@@ -78,15 +78,15 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     // Properly configure for server-side usage without worker
     if (pdfjsLib.GlobalWorkerOptions) {
       // For server-side rendering, we need to disable the worker
-      // Different approaches for different environments
+      // Set to empty string to disable worker functionality
       try {
         pdfjsLib.GlobalWorkerOptions.workerSrc = '';
       } catch (workerError) {
-        // If setting empty string fails, try other approaches
+        // If setting empty string fails, try setting to undefined
         try {
-          delete pdfjsLib.GlobalWorkerOptions.workerSrc;
-        } catch (deleteError) {
-          console.warn('parsePdfWithPdfjs - Could not configure worker options:', deleteError);
+          (pdfjsLib.GlobalWorkerOptions as any).workerSrc = undefined;
+        } catch (undefinedError) {
+          console.warn('parsePdfWithPdfjs - Could not configure worker options:', undefinedError);
         }
       }
     }

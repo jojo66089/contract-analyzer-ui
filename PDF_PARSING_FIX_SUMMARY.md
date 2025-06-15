@@ -66,24 +66,28 @@ The original error was caused by several issues in the PDF parsing implementatio
 - **Better error responses**: Added structured error messages with suggestions
 - **Helpful guidance**: Specific recommendations for different PDF issues
 
+### 8. TypeScript Compilation Fix
+- **Resolved delete operator error**: Fixed "The operand of a 'delete' operator must be optional" TypeScript error
+- **Type-safe worker configuration**: Used type assertion instead of delete operator for better TypeScript compatibility
+
 ## Technical Improvements
 
 ### Worker Configuration Fix
-The main issue was the incorrect worker source configuration. The fix handles different environments gracefully:
+The main issue was the incorrect worker source configuration. The fix handles different environments gracefully and resolves TypeScript compilation issues:
 
 ```typescript
 // Before (caused errors)
 pdfjsLib.GlobalWorkerOptions.workerSrc = '';
 
-// After (robust handling)
+// After (robust handling with TypeScript compatibility)
 if (pdfjsLib.GlobalWorkerOptions) {
   try {
     pdfjsLib.GlobalWorkerOptions.workerSrc = '';
   } catch (workerError) {
     try {
-      delete pdfjsLib.GlobalWorkerOptions.workerSrc;
-    } catch (deleteError) {
-      console.warn('parsePdfWithPdfjs - Could not configure worker options:', deleteError);
+      (pdfjsLib.GlobalWorkerOptions as any).workerSrc = undefined;
+    } catch (undefinedError) {
+      console.warn('parsePdfWithPdfjs - Could not configure worker options:', undefinedError);
     }
   }
 }
