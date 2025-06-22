@@ -198,7 +198,7 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
               }
               return '';
             })
-            .filter(text => text.trim().length > 0)
+            .filter((text: string) => text.trim().length > 0)
             .join(' ');
         })();
         
