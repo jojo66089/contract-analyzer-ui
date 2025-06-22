@@ -6,7 +6,13 @@ import * as path from 'path';
 // Alternative PDF parsing library
 let pdfParse: any = null;
 try {
-  pdfParse = require('pdf-parse');
+  // In Vercel environment, pdf-parse may have issues with native dependencies
+  // Only try to require it in non-Vercel environments
+  if (process.env.VERCEL !== '1') {
+    pdfParse = require('pdf-parse');
+  } else {
+    console.log('Running in Vercel environment, skipping pdf-parse initialization');
+  }
 } catch (e) {
   console.warn('pdf-parse not available, will use fallback methods');
 }
@@ -79,41 +85,49 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
   console.log('parsePdfWithPdfjs - Starting pdfjs-dist extraction');
   
   try {
-    // Dynamic import to avoid SSR issues - use legacy build for Node.js
-    console.log('parsePdfWithPdfjs - Loading pdfjs-dist legacy build for Node.js compatibility');
-    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    // Check if we're in a serverless environment (Vercel)
+    const isServerless = process.env.VERCEL === '1';
+    console.log('parsePdfWithPdfjs - Running in serverless environment:', isServerless);
     
-    // Properly configure for server-side usage
+    // In Vercel environment, we need special handling
+    if (isServerless) {
+      console.log('parsePdfWithPdfjs - Using Vercel-specific configuration');
+    }
+    
+    // Dynamic import with timeout to prevent hanging
+    const importPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
+    const importTimeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('PDF.js import timed out after 5 seconds')), 5000);
+    });
+    
+    // Race between import and timeout
+    const pdfjsLib = await Promise.race([importPromise, importTimeoutPromise])
+      .catch(error => {
+        console.error('parsePdfWithPdfjs - Failed to import PDF.js:', error);
+        throw new Error('Failed to load PDF.js library');
+      });
+    
+    console.log('parsePdfWithPdfjs - Successfully imported PDF.js');
+    
+    // Properly configure for server-side usage with extra safety for Vercel
     if (pdfjsLib.GlobalWorkerOptions) {
-      // For server-side rendering in a serverless environment like Vercel,
-      // we need to disable the worker and use the fake worker implementation
-      try {
-        // Check if we're in a serverless environment
-        const isServerless = process.env.VERCEL === '1';
-        
-        if (isServerless) {
-          // In Vercel, disable the worker completely
-          pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+      // Always disable workers in serverless environments
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+      console.log('parsePdfWithPdfjs - Disabled worker (set workerSrc to empty string)');
+      
+      // Additional safety measures for Vercel
+      if (isServerless) {
+        try {
+          // These are critical for Vercel environment
           (pdfjsLib as any).disableWorker = true;
           (pdfjsLib as any).disableFontFace = true;
-          console.log('parsePdfWithPdfjs - Disabled workers for Vercel environment');
-        } else {
-          // In local development, try to use the local worker file
-          try {
-            // First try using the public directory worker
-            pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.js';
-            console.log('parsePdfWithPdfjs - Using worker from public directory');
-          } catch (publicWorkerError) {
-            console.warn('parsePdfWithPdfjs - Could not use public worker:', publicWorkerError);
-            // Fallback to disabling worker
-            pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-            console.log('parsePdfWithPdfjs - Disabled worker as fallback');
-          }
+          (pdfjsLib as any).disableAutoFetch = true;
+          (pdfjsLib as any).disableStream = true;
+          (pdfjsLib as any).disableRange = true;
+          console.log('parsePdfWithPdfjs - Applied additional Vercel safety configurations');
+        } catch (configError) {
+          console.warn('parsePdfWithPdfjs - Error applying Vercel configurations:', configError);
         }
-      } catch (workerError) {
-        console.warn('parsePdfWithPdfjs - Error configuring worker options:', workerError);
-        // Last resort: disable worker completely
-        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
       }
     }
     
@@ -121,50 +135,85 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     const uint8Array = new Uint8Array(buffer);
     console.log('parsePdfWithPdfjs - Converted buffer to Uint8Array, size:', uint8Array.length);
     
-    // Configure for serverless environment (Vercel)
-    const isServerless = process.env.VERCEL === '1';
-    console.log('parsePdfWithPdfjs - Running in serverless environment:', isServerless);
-    
-    const loadingTask = pdfjsLib.getDocument({
+    // Configure document loading with environment-specific settings
+    const loadingOptions: any = {
       data: uint8Array,
-      verbosity: 0, // Reduce console output
-      useWorkerFetch: false, // Disable worker fetch for server-side
-      isEvalSupported: false, // Disable eval for security
-      useSystemFonts: false, // Don't rely on system fonts
-      disableFontFace: true, // Disable font face loading for server-side
-      disableRange: true, // Disable range requests for server-side
-      disableStream: true, // Disable streaming for server-side
-      disableAutoFetch: true, // Disable auto-fetch for server-side
-      cMapUrl: undefined, // Disable CMap loading for server-side
-      standardFontDataUrl: undefined, // Disable standard font data for server-side
-      // Additional options for serverless environments
-      enableXfa: false, // Disable XFA form processing
+      verbosity: 0,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: false,
+      disableFontFace: true,
+      disableRange: true,
+      disableStream: true,
+      disableAutoFetch: true,
+      cMapUrl: undefined,
+      standardFontDataUrl: undefined,
+      enableXfa: false,
+    };
+    
+    // Add extra safety for Vercel environment
+    if (isServerless) {
+      loadingOptions.nativeImageDecoderSupport = 'none';
+      loadingOptions.ignoreErrors = true;
+    }
+    
+    console.log('parsePdfWithPdfjs - Creating document with options');
+    const loadingTask = pdfjsLib.getDocument(loadingOptions);
+    
+    // Set a timeout for the PDF loading to prevent hanging
+    const loadPromise = loadingTask.promise;
+    const loadTimeoutPromise = new Promise<any>((_, reject) => {
+      setTimeout(() => reject(new Error('PDF loading timed out after 15 seconds')), 15000);
     });
     
-    const pdf = await loadingTask.promise;
+    // Race between PDF loading and timeout
+    const pdf = await Promise.race([loadPromise, loadTimeoutPromise])
+      .catch(error => {
+        console.error('parsePdfWithPdfjs - Failed to load PDF:', error);
+        throw new Error('Failed to load PDF document');
+      });
+    
     console.log(`parsePdfWithPdfjs - PDF loaded with ${pdf.numPages} pages`);
     
     let fullText = '';
+    const maxPages = isServerless ? Math.min(pdf.numPages, 50) : pdf.numPages; // Limit pages in serverless
     
-    // Extract text from each page
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    // Process pages with a more resilient approach
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
       try {
-        const page = await pdf.getPage(pageNum);
-        const textContent = await page.getTextContent();
+        // Set a timeout for each page processing
+        const pagePromise = (async () => {
+          const page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          
+          // Combine text items with proper spacing
+          return textContent.items
+            .map((item: any) => {
+              // Handle text items properly
+              if (typeof item === 'object' && item.str) {
+                return item.str;
+              }
+              return '';
+            })
+            .filter(text => text.trim().length > 0)
+            .join(' ');
+        })();
         
-        // Combine text items with proper spacing
-        const pageText = textContent.items
-          .map((item: any) => {
-            // Handle text items properly
-            if (typeof item === 'object' && item.str) {
-              return item.str;
-            }
-            return '';
-          })
-          .filter(text => text.trim().length > 0)
-          .join(' ');
+        const pageTimeoutPromise = new Promise<string>((_, reject) => {
+          setTimeout(() => {
+            console.warn(`parsePdfWithPdfjs - Page ${pageNum} processing timed out`);
+            return ''; // Return empty string on timeout instead of rejecting
+          }, 3000);
+        });
         
-        if (pageText.trim()) {
+        // Race between page processing and timeout
+        const pageText = await Promise.race([pagePromise, pageTimeoutPromise])
+          .catch(error => {
+            console.warn(`parsePdfWithPdfjs - Error processing page ${pageNum}:`, error);
+            return ''; // Return empty string on error
+          });
+        
+        if (pageText && pageText.trim()) {
           fullText += pageText + '\n\n';
         }
       } catch (pageError) {
@@ -173,7 +222,7 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
       }
     }
     
-    console.log(`parsePdfWithPdfjs - Extracted ${fullText.length} characters from ${pdf.numPages} pages`);
+    console.log(`parsePdfWithPdfjs - Extracted ${fullText.length} characters from ${maxPages} pages`);
     
     if (fullText && fullText.length > 50) {
       const cleaned = cleanPdfText(fullText);
@@ -295,39 +344,63 @@ function parsePdfEnhancedFallback(buffer: Buffer): string {
   console.log('parsePdfEnhancedFallback - Using enhanced fallback PDF parsing');
   
   try {
-    const text = buffer.toString('latin1'); // Use latin1 for better binary handling
+    // Check if we're in a serverless environment (Vercel)
+    const isServerless = process.env.VERCEL === '1';
+    console.log('parsePdfEnhancedFallback - Running in serverless environment:', isServerless);
+    
+    // Use a safer encoding for Vercel environment
+    const encoding = isServerless ? 'utf8' : 'latin1';
+    console.log(`parsePdfEnhancedFallback - Using ${encoding} encoding`);
+    
+    // Convert buffer to string with appropriate encoding
+    const text = buffer.toString(encoding);
+    console.log(`parsePdfEnhancedFallback - Buffer converted to string, length: ${text.length}`);
     
     let extractedText = '';
     
     // Method 1: Extract text between BT/ET markers (text objects)
-    const textObjectRegex = /BT\s*([\s\S]*?)\s*ET/g;
-    let match;
-    while ((match = textObjectRegex.exec(text)) !== null) {
-      const textObject = match[1];
-      // Extract text from Tj and TJ operators
-      const tjRegex = /\((.*?)\)\s*Tj/g;
-      const tjArrayRegex = /\[(.*?)\]\s*TJ/g;
+    try {
+      console.log('parsePdfEnhancedFallback - Extracting text from BT/ET markers');
+      const textObjectRegex = /BT\s*([\s\S]*?)\s*ET/g;
+      let match;
+      let matchCount = 0;
       
-      let tjMatch;
-      while ((tjMatch = tjRegex.exec(textObject)) !== null) {
-        const textContent = tjMatch[1];
-        if (textContent && textContent.length > 0) {
-          extractedText += textContent + ' ';
-        }
-      }
+      // Set a reasonable limit for regex operations in serverless environment
+      const maxMatches = isServerless ? 1000 : 5000;
       
-      while ((tjMatch = tjArrayRegex.exec(textObject)) !== null) {
-        const arrayContent = tjMatch[1];
-        // Extract strings from array format
-        const stringRegex = /\((.*?)\)/g;
-        let stringMatch;
-        while ((stringMatch = stringRegex.exec(arrayContent)) !== null) {
-          const textContent = stringMatch[1];
+      while ((match = textObjectRegex.exec(text)) !== null && matchCount < maxMatches) {
+        matchCount++;
+        const textObject = match[1];
+        
+        // Extract text from Tj and TJ operators
+        const tjRegex = /\((.*?)\)\s*Tj/g;
+        const tjArrayRegex = /\[(.*?)\]\s*TJ/g;
+        
+        let tjMatch;
+        while ((tjMatch = tjRegex.exec(textObject)) !== null) {
+          const textContent = tjMatch[1];
           if (textContent && textContent.length > 0) {
             extractedText += textContent + ' ';
           }
         }
+        
+        while ((tjMatch = tjArrayRegex.exec(textObject)) !== null) {
+          const arrayContent = tjMatch[1];
+          // Extract strings from array format
+          const stringRegex = /\((.*?)\)/g;
+          let stringMatch;
+          while ((stringMatch = stringRegex.exec(arrayContent)) !== null) {
+            const textContent = stringMatch[1];
+            if (textContent && textContent.length > 0) {
+              extractedText += textContent + ' ';
+            }
+          }
+        }
       }
+      
+      console.log(`parsePdfEnhancedFallback - Found ${matchCount} text objects`);
+    } catch (regexError) {
+      console.warn('parsePdfEnhancedFallback - Error in BT/ET extraction:', regexError);
     }
     
     // Method 2: Look for readable text patterns
@@ -387,21 +460,25 @@ async function parsePdf(buffer: Buffer): Promise<string> {
   const isServerless = process.env.VERCEL === '1';
   console.log('parsePdf - Running in serverless environment:', isServerless);
   
-  // In serverless environments, prioritize methods that work better there
+  // In serverless environments (Vercel), use a different strategy
   if (isServerless) {
-    // Method 1: Try pdf-parse library first (most reliable for server-side)
+    console.log('parsePdf - Using Vercel-optimized parsing strategy');
+    
+    // Method 1: Try PDF.js with enhanced Vercel configuration
     try {
-      const pdfParseResult = await parsePdfWithPdfParse(buffer);
-      if (pdfParseResult && pdfParseResult.length > 50) {
-        console.log('parsePdf - pdf-parse method successful');
-        return pdfParseResult;
+      console.log('parsePdf - Trying PDF.js with Vercel optimizations first');
+      const pdfjsResult = await parsePdfWithPdfjs(buffer);
+      if (pdfjsResult && pdfjsResult.length > 50) {
+        console.log('parsePdf - PDF.js with Vercel optimizations successful');
+        return pdfjsResult;
       }
-    } catch (pdfParseError) {
-      console.warn('parsePdf - pdf-parse method failed:', pdfParseError);
+    } catch (pdfjsError) {
+      console.warn('parsePdf - PDF.js with Vercel optimizations failed:', pdfjsError);
     }
     
-    // Method 2: Try enhanced fallback parsing
+    // Method 2: Try enhanced fallback parsing (most reliable for Vercel)
     try {
+      console.log('parsePdf - Trying enhanced fallback parsing');
       const enhancedFallbackResult = parsePdfEnhancedFallback(buffer);
       if (enhancedFallbackResult && enhancedFallbackResult.length > 50) {
         console.log('parsePdf - Enhanced fallback method successful');
@@ -413,6 +490,7 @@ async function parsePdf(buffer: Buffer): Promise<string> {
     
     // Method 3: Try basic fallback parsing
     try {
+      console.log('parsePdf - Trying basic fallback parsing');
       const fallbackResult = parsePdfFallback(buffer);
       if (fallbackResult && fallbackResult.length > 50) {
         console.log('parsePdf - Basic fallback method successful');
@@ -421,8 +499,23 @@ async function parsePdf(buffer: Buffer): Promise<string> {
     } catch (fallbackError) {
       console.warn('parsePdf - Basic fallback method failed:', fallbackError);
     }
+    
+    // Method 4: Try pdf-parse as last resort (may not work in Vercel)
+    try {
+      console.log('parsePdf - Trying pdf-parse as last resort');
+      const pdfParseResult = await parsePdfWithPdfParse(buffer);
+      if (pdfParseResult && pdfParseResult.length > 50) {
+        console.log('parsePdf - pdf-parse method successful');
+        return pdfParseResult;
+      }
+    } catch (pdfParseError) {
+      console.warn('parsePdf - pdf-parse method failed:', pdfParseError);
+    }
   } else {
-    // For non-serverless environments, try PDF.js first as it's more reliable
+    // For non-serverless environments, use the original strategy
+    console.log('parsePdf - Using standard parsing strategy for local environment');
+    
+    // Method 1: Try PDF.js first as it's more reliable locally
     try {
       const pdfjsResult = await parsePdfWithPdfjs(buffer);
       if (pdfjsResult && pdfjsResult.length > 50) {
@@ -433,7 +526,7 @@ async function parsePdf(buffer: Buffer): Promise<string> {
       console.warn('parsePdf - pdfjs-dist method failed:', pdfjsError);
     }
     
-    // Then try the other methods
+    // Method 2: Try pdf-parse
     try {
       const pdfParseResult = await parsePdfWithPdfParse(buffer);
       if (pdfParseResult && pdfParseResult.length > 50) {
@@ -444,6 +537,7 @@ async function parsePdf(buffer: Buffer): Promise<string> {
       console.warn('parsePdf - pdf-parse method failed:', pdfParseError);
     }
     
+    // Method 3: Try enhanced fallback
     try {
       const enhancedFallbackResult = parsePdfEnhancedFallback(buffer);
       if (enhancedFallbackResult && enhancedFallbackResult.length > 50) {
@@ -454,6 +548,7 @@ async function parsePdf(buffer: Buffer): Promise<string> {
       console.warn('parsePdf - Enhanced fallback method failed:', enhancedError);
     }
     
+    // Method 4: Try basic fallback
     try {
       const fallbackResult = parsePdfFallback(buffer);
       if (fallbackResult && fallbackResult.length > 50) {
