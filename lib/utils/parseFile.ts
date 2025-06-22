@@ -101,11 +101,14 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     });
     
     // Race between import and timeout
-    const pdfjsLib = await Promise.race([importPromise, importTimeoutPromise])
+    const pdfjsLibModule: any = await Promise.race([importPromise, importTimeoutPromise])
       .catch(error => {
         console.error('parsePdfWithPdfjs - Failed to import PDF.js:', error);
         throw new Error('Failed to load PDF.js library');
       });
+    
+    // Ensure we have a properly typed pdfjsLib
+    const pdfjsLib = pdfjsLibModule as typeof import('pdfjs-dist');
     
     console.log('parsePdfWithPdfjs - Successfully imported PDF.js');
     
@@ -199,10 +202,10 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
             .join(' ');
         })();
         
-        const pageTimeoutPromise = new Promise<string>((_, reject) => {
+        const pageTimeoutPromise = new Promise<string>((resolve) => {
           setTimeout(() => {
             console.warn(`parsePdfWithPdfjs - Page ${pageNum} processing timed out`);
-            return ''; // Return empty string on timeout instead of rejecting
+            resolve(''); // Resolve with empty string on timeout instead of rejecting
           }, 3000);
         });
         
