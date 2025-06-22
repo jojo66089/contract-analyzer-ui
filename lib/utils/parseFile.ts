@@ -85,27 +85,45 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     
     // Properly configure for server-side usage
     if (pdfjsLib.GlobalWorkerOptions) {
-      // For server-side rendering, we need to properly configure the worker
-      // Use the built-in worker from the legacy build
+      // For server-side rendering in a serverless environment like Vercel,
+      // we need to disable the worker and use the fake worker implementation
       try {
-        // Set the worker source to the legacy worker path
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.js`;
-      } catch (workerError) {
-        console.warn('parsePdfWithPdfjs - Could not set CDN worker, trying local worker:', workerError);
-        try {
-          // Fallback to local worker if CDN fails
-          pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/build/pdf.worker.js');
-        } catch (localWorkerError) {
-          console.warn('parsePdfWithPdfjs - Could not set local worker, disabling worker:', localWorkerError);
-          // Last resort: disable worker completely by setting to empty string
-          (pdfjsLib.GlobalWorkerOptions as any).workerSrc = '';
+        // Check if we're in a serverless environment
+        const isServerless = process.env.VERCEL === '1';
+        
+        if (isServerless) {
+          // In Vercel, disable the worker completely
+          pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+          (pdfjsLib as any).disableWorker = true;
+          (pdfjsLib as any).disableFontFace = true;
+          console.log('parsePdfWithPdfjs - Disabled workers for Vercel environment');
+        } else {
+          // In local development, try to use the local worker file
+          try {
+            // First try using the public directory worker
+            pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.js';
+            console.log('parsePdfWithPdfjs - Using worker from public directory');
+          } catch (publicWorkerError) {
+            console.warn('parsePdfWithPdfjs - Could not use public worker:', publicWorkerError);
+            // Fallback to disabling worker
+            pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+            console.log('parsePdfWithPdfjs - Disabled worker as fallback');
+          }
         }
+      } catch (workerError) {
+        console.warn('parsePdfWithPdfjs - Error configuring worker options:', workerError);
+        // Last resort: disable worker completely
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
       }
     }
     
     // Convert Buffer to Uint8Array for pdfjs-dist compatibility
     const uint8Array = new Uint8Array(buffer);
     console.log('parsePdfWithPdfjs - Converted buffer to Uint8Array, size:', uint8Array.length);
+    
+    // Configure for serverless environment (Vercel)
+    const isServerless = process.env.VERCEL === '1';
+    console.log('parsePdfWithPdfjs - Running in serverless environment:', isServerless);
     
     const loadingTask = pdfjsLib.getDocument({
       data: uint8Array,
@@ -119,6 +137,9 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
       disableAutoFetch: true, // Disable auto-fetch for server-side
       cMapUrl: undefined, // Disable CMap loading for server-side
       standardFontDataUrl: undefined, // Disable standard font data for server-side
+      // Additional options for serverless environments
+      enableXfa: false, // Disable XFA form processing
+      useSystemFonts: false, // Explicitly disable system fonts
     });
     
     const pdf = await loadingTask.promise;
@@ -363,48 +384,86 @@ function parsePdfEnhancedFallback(buffer: Buffer): string {
 async function parsePdf(buffer: Buffer): Promise<string> {
   console.log('parsePdf - Starting PDF parsing with multiple methods');
   
-  // Method 1: Try pdf-parse library first (most reliable for server-side)
-  try {
-    const pdfParseResult = await parsePdfWithPdfParse(buffer);
-    if (pdfParseResult && pdfParseResult.length > 50) {
-      console.log('parsePdf - pdf-parse method successful');
-      return pdfParseResult;
-    }
-  } catch (pdfParseError) {
-    console.warn('parsePdf - pdf-parse method failed:', pdfParseError);
-  }
+  // Check if we're in a serverless environment (Vercel)
+  const isServerless = process.env.VERCEL === '1';
+  console.log('parsePdf - Running in serverless environment:', isServerless);
   
-  // Method 2: Try enhanced fallback parsing
-  try {
-    const enhancedFallbackResult = parsePdfEnhancedFallback(buffer);
-    if (enhancedFallbackResult && enhancedFallbackResult.length > 50) {
-      console.log('parsePdf - Enhanced fallback method successful');
-      return enhancedFallbackResult;
+  // In serverless environments, prioritize methods that work better there
+  if (isServerless) {
+    // Method 1: Try pdf-parse library first (most reliable for server-side)
+    try {
+      const pdfParseResult = await parsePdfWithPdfParse(buffer);
+      if (pdfParseResult && pdfParseResult.length > 50) {
+        console.log('parsePdf - pdf-parse method successful');
+        return pdfParseResult;
+      }
+    } catch (pdfParseError) {
+      console.warn('parsePdf - pdf-parse method failed:', pdfParseError);
     }
-  } catch (enhancedError) {
-    console.warn('parsePdf - Enhanced fallback method failed:', enhancedError);
-  }
-  
-  // Method 3: Try basic fallback parsing
-  try {
-    const fallbackResult = parsePdfFallback(buffer);
-    if (fallbackResult && fallbackResult.length > 50) {
-      console.log('parsePdf - Basic fallback method successful');
-      return fallbackResult;
+    
+    // Method 2: Try enhanced fallback parsing
+    try {
+      const enhancedFallbackResult = parsePdfEnhancedFallback(buffer);
+      if (enhancedFallbackResult && enhancedFallbackResult.length > 50) {
+        console.log('parsePdf - Enhanced fallback method successful');
+        return enhancedFallbackResult;
+      }
+    } catch (enhancedError) {
+      console.warn('parsePdf - Enhanced fallback method failed:', enhancedError);
     }
-  } catch (fallbackError) {
-    console.warn('parsePdf - Basic fallback method failed:', fallbackError);
-  }
-  
-  // Method 4: Try pdfjs-dist (may fail in server environment)
-  try {
-    const pdfjsResult = await parsePdfWithPdfjs(buffer);
-    if (pdfjsResult && pdfjsResult.length > 50) {
-      console.log('parsePdf - pdfjs-dist method successful');
-      return pdfjsResult;
+    
+    // Method 3: Try basic fallback parsing
+    try {
+      const fallbackResult = parsePdfFallback(buffer);
+      if (fallbackResult && fallbackResult.length > 50) {
+        console.log('parsePdf - Basic fallback method successful');
+        return fallbackResult;
+      }
+    } catch (fallbackError) {
+      console.warn('parsePdf - Basic fallback method failed:', fallbackError);
     }
-  } catch (pdfjsError) {
-    console.warn('parsePdf - pdfjs-dist method failed:', pdfjsError);
+  } else {
+    // For non-serverless environments, try PDF.js first as it's more reliable
+    try {
+      const pdfjsResult = await parsePdfWithPdfjs(buffer);
+      if (pdfjsResult && pdfjsResult.length > 50) {
+        console.log('parsePdf - pdfjs-dist method successful');
+        return pdfjsResult;
+      }
+    } catch (pdfjsError) {
+      console.warn('parsePdf - pdfjs-dist method failed:', pdfjsError);
+    }
+    
+    // Then try the other methods
+    try {
+      const pdfParseResult = await parsePdfWithPdfParse(buffer);
+      if (pdfParseResult && pdfParseResult.length > 50) {
+        console.log('parsePdf - pdf-parse method successful');
+        return pdfParseResult;
+      }
+    } catch (pdfParseError) {
+      console.warn('parsePdf - pdf-parse method failed:', pdfParseError);
+    }
+    
+    try {
+      const enhancedFallbackResult = parsePdfEnhancedFallback(buffer);
+      if (enhancedFallbackResult && enhancedFallbackResult.length > 50) {
+        console.log('parsePdf - Enhanced fallback method successful');
+        return enhancedFallbackResult;
+      }
+    } catch (enhancedError) {
+      console.warn('parsePdf - Enhanced fallback method failed:', enhancedError);
+    }
+    
+    try {
+      const fallbackResult = parsePdfFallback(buffer);
+      if (fallbackResult && fallbackResult.length > 50) {
+        console.log('parsePdf - Basic fallback method successful');
+        return fallbackResult;
+      }
+    } catch (fallbackError) {
+      console.warn('parsePdf - Basic fallback method failed:', fallbackError);
+    }
   }
   
   // Method 5: Last resort - return descriptive error
