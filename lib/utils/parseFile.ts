@@ -139,7 +139,6 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
       standardFontDataUrl: undefined, // Disable standard font data for server-side
       // Additional options for serverless environments
       enableXfa: false, // Disable XFA form processing
-      useSystemFonts: false, // Explicitly disable system fonts
     });
     
     const pdf = await loadingTask.promise;
