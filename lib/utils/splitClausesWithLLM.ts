@@ -49,13 +49,17 @@ export async function splitClausesWithLLM(contractText: string): Promise<Clause[
         console.error(`splitClausesWithLLM - LLM API error: ${response.status}, details: ${errorText}`);
         throw new Error(`LLM API error: ${response.status}`);
       }
-    } catch (fetchError) {
+    } catch (error) {
       clearTimeout(timeoutId);
-      if (fetchError.name === 'AbortError') {
+      
+      // Type guard for DOMException (AbortError)
+      if (error instanceof Error && error.name === 'AbortError') {
         console.error('splitClausesWithLLM - API call timed out after 30 seconds');
         throw new Error('LLM API timeout after 30 seconds');
       }
-      throw fetchError;
+      
+      // Re-throw the original error
+      throw error;
     }
 
     const result = await response.json();
