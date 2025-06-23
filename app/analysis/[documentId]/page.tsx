@@ -426,11 +426,11 @@ export default function AnalysisPage() {
         
         console.log('PDF downloaded successfully using primary endpoint');
       } catch (primaryError) {
-        console.error("Primary PDF endpoint failed, trying puppeteer fallback:", primaryError);
+        console.error("Primary PDF endpoint failed, trying jsPDF fallback:", primaryError);
         
-        // If primary endpoint fails, try the puppeteer-based fallback
-        console.log('Attempting to download PDF using puppeteer fallback');
-        const fallbackResponse = await axios.post('/api/contract/puppeteer-pdf', pdfData, {
+        // If primary endpoint fails, try the jsPDF-based fallback
+        console.log('Attempting to download PDF using jsPDF fallback');
+        const fallbackResponse = await axios.post('/api/contract/jspdf-pdf', pdfData, {
           responseType: 'blob'
         });
         
@@ -445,7 +445,7 @@ export default function AnalysisPage() {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
         
-        console.log('PDF downloaded successfully using puppeteer fallback');
+        console.log('PDF downloaded successfully using jsPDF fallback');
       }
     } catch (err) {
       console.error('Error downloading PDF (all methods failed):', err);
