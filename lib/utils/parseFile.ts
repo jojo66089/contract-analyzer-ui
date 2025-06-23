@@ -95,25 +95,26 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     }
     
     // Dynamic import with timeout to prevent hanging
-    const importPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
-    const importTimeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('PDF.js import timed out after 5 seconds')), 5000);
-    });
+    console.log('parsePdfWithPdfjs - Attempting to import PDF.js');
     
-    // Race between import and timeout
-    const pdfjsLibModule: any = await Promise.race([importPromise, importTimeoutPromise])
-      .catch(async error => {
-        console.error('parsePdfWithPdfjs - Failed to import PDF.js from legacy path:', error);
-        
-        // Try alternative import path
-        try {
-          console.log('parsePdfWithPdfjs - Attempting alternative import path');
-          return await import('pdfjs-dist/build/pdf.js');
-        } catch (alternativeError) {
-          console.error('parsePdfWithPdfjs - Alternative import also failed:', alternativeError);
-          throw new Error('Failed to load PDF.js library from any path');
-        }
-      });
+    // Use a simpler approach with a single import path
+    let pdfjsLibModule: any;
+    try {
+      // First try the ESM path
+      pdfjsLibModule = await import('pdfjs-dist');
+      console.log('parsePdfWithPdfjs - Successfully imported PDF.js from default path');
+    } catch (error) {
+      console.log('parsePdfWithPdfjs - Default import failed, trying legacy path:', error);
+      
+      try {
+        // Try legacy path as fallback
+        pdfjsLibModule = await import('pdfjs-dist/legacy/build/pdf.js');
+        console.log('parsePdfWithPdfjs - Successfully imported PDF.js from legacy path');
+      } catch (legacyError) {
+        console.error('parsePdfWithPdfjs - All import attempts failed:', legacyError);
+        throw new Error('Failed to load PDF.js library');
+      }
+    }
     
     // Ensure we have a properly typed pdfjsLib
     const pdfjsLib = pdfjsLibModule as typeof import('pdfjs-dist');
@@ -123,42 +124,17 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     // Properly configure for server-side usage with extra safety for Vercel
     if (pdfjsLib.GlobalWorkerOptions) {
       try {
-        // Configure the worker source for server-side usage
-        // In Node.js environment, we need to use the fake worker
-        try {
-          // First try the standard path
-          const pdfjsWorker = require('pdfjs-dist/build/pdf.worker.js');
-          pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
-          console.log('parsePdfWithPdfjs - Configured worker with pdf.worker.js');
-        } catch (standardPathError) {
-          console.log('parsePdfWithPdfjs - Standard worker path failed, trying legacy path:', standardPathError);
-          
-          try {
-            // Try legacy path
-            const pdfjsWorkerLegacy = require('pdfjs-dist/legacy/build/pdf.worker.js');
-            pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerLegacy;
-            console.log('parsePdfWithPdfjs - Configured worker with legacy pdf.worker.js');
-          } catch (legacyPathError) {
-            console.log('parsePdfWithPdfjs - Legacy worker path also failed:', legacyPathError);
-            
-            // Try inline worker setup as last resort
-            try {
-              // Set up fake worker directly
-              pdfjsLib.GlobalWorkerOptions.workerSrc = {
-                WorkerMessageHandler: {
-                  setup: (handler: any) => {
-                    console.log('parsePdfWithPdfjs - Using inline fake worker handler');
-                  }
-                }
-              };
-              console.log('parsePdfWithPdfjs - Configured inline fake worker');
-            } catch (inlineWorkerError) {
-              // If all else fails, disable the worker
-              pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-              console.log('parsePdfWithPdfjs - All worker configurations failed, disabled worker');
-            }
-          }
-        }
+        // For server-side usage, we need to disable the worker
+        // Setting workerSrc to empty string disables workers
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+        console.log('parsePdfWithPdfjs - Disabled worker for server-side usage');
+        
+        // These settings are critical for server-side PDF.js usage
+        (pdfjsLib as any).disableWorker = true;
+        (pdfjsLib as any).disableFontFace = true;
+        (pdfjsLib as any).disableAutoFetch = true;
+        (pdfjsLib as any).disableStream = true;
+        (pdfjsLib as any).disableRange = true;
       } catch (workerError) {
         // If we can't load the worker, disable it
         pdfjsLib.GlobalWorkerOptions.workerSrc = '';
@@ -211,44 +187,11 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
     
     // Double-check worker configuration before loading document
     if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-      console.log('parsePdfWithPdfjs - Worker source still not configured, trying direct fake worker setup');
+      console.log('parsePdfWithPdfjs - Worker source still not configured, setting to empty string');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
       
-      // Last resort: Set up fake worker directly
-      try {
-        // Define a minimal fake worker
-        const fakeWorker = `
-          self.onmessage = function(obj) {
-            console.log('FakeWorker received message');
-            self.postMessage({
-              isReply: true,
-              callbackId: obj.data.callbackId,
-              data: {}
-            });
-          };
-        `;
-        
-        // Create a blob URL for the fake worker
-        const blob = new Blob([fakeWorker], { type: 'application/javascript' });
-        
-        // Set up the worker source with our fake implementation
-        if (typeof URL !== 'undefined' && URL.createObjectURL) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
-          console.log('parsePdfWithPdfjs - Created blob URL for fake worker');
-        } else {
-          console.log('parsePdfWithPdfjs - URL.createObjectURL not available');
-          
-          // Try to use NodeCanvasFactory if available (for server-side rendering)
-          try {
-            const NodeCanvasFactory = require('pdfjs-dist/lib/test/unit/test_utils').NodeCanvasFactory;
-            loadingOptions.canvasFactory = new NodeCanvasFactory();
-            console.log('parsePdfWithPdfjs - Successfully configured NodeCanvasFactory');
-          } catch (canvasError) {
-            console.warn('parsePdfWithPdfjs - NodeCanvasFactory not available:', canvasError);
-          }
-        }
-      } catch (fakeWorkerError) {
-        console.warn('parsePdfWithPdfjs - Failed to set up fake worker:', fakeWorkerError);
-      }
+      // Ensure worker is disabled
+      (pdfjsLib as any).disableWorker = true;
     }
     
     const loadingTask = pdfjsLib.getDocument(loadingOptions);
