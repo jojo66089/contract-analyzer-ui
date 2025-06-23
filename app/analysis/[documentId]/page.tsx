@@ -388,7 +388,7 @@ export default function AnalysisPage() {
     }
   }, [currentLanguage, selectedClause, analyses, translations, clauses, documentId]);
 
-  // Memoized download handler
+  // Memoized download handler with fallback
   const handleDownloadPDF = useCallback(async () => {
     try {
       const currentSummary = getCurrentSummary();
@@ -397,27 +397,58 @@ export default function AnalysisPage() {
         return;
       }
 
-      const response = await axios.post('/api/contract/download-pdf', {
+      // Prepare the data payload for both endpoints
+      const pdfData = {
         contract: documentDetails,
         summary: currentSummary,
         analyses: Object.values(analyses),
         clauses: clauses,
         language: currentLanguage
-      }, {
-        responseType: 'blob'
-      });
-
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${documentDetails.name.replace(/\.[^/.]+$/, "")}_analysis_report.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      };
+      
+      try {
+        // First try the primary PDF generation endpoint
+        console.log('Attempting to download PDF using primary endpoint');
+        const response = await axios.post('/api/contract/download-pdf', pdfData, {
+          responseType: 'blob'
+        });
+        
+        // Create a blob URL and trigger download
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${documentDetails.name.replace(/\.[^/.]+$/, "")}_analysis_report.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        console.log('PDF downloaded successfully using primary endpoint');
+      } catch (primaryError) {
+        console.error("Primary PDF endpoint failed, trying puppeteer fallback:", primaryError);
+        
+        // If primary endpoint fails, try the puppeteer-based fallback
+        console.log('Attempting to download PDF using puppeteer fallback');
+        const fallbackResponse = await axios.post('/api/contract/puppeteer-pdf', pdfData, {
+          responseType: 'blob'
+        });
+        
+        // Create a blob URL and trigger download
+        const blob = new Blob([fallbackResponse.data], { type: 'application/pdf' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${documentDetails.name.replace(/\.[^/.]+$/, "")}_analysis_report.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        console.log('PDF downloaded successfully using puppeteer fallback');
+      }
     } catch (err) {
-      console.error('Error downloading PDF:', err);
+      console.error('Error downloading PDF (all methods failed):', err);
       setError('Failed to download PDF report');
     }
   }, [getCurrentSummary, documentDetails, analyses, clauses, currentLanguage]);
