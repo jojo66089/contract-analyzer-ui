@@ -86,7 +86,20 @@ async function parsePdfWithPdf2Json(buffer: Buffer): Promise<string> {
   try {
     // Generate a unique filename for the temporary file
     const fileName = uuidv4();
-    const tempFilePath = `/tmp/${fileName}.pdf`;
+    
+    // Try to use /tmp directory (available in Vercel), but fall back to os.tmpdir() if needed
+    let tempFilePath;
+    try {
+      // Check if /tmp is writable
+      tempFilePath = `/tmp/${fileName}.pdf`;
+      await fs.promises.access('/tmp', fs.constants.W_OK);
+      console.log('parsePdfWithPdf2Json - Using /tmp directory for temporary files');
+    } catch (accessError) {
+      // Fall back to os.tmpdir()
+      const os = require('os');
+      tempFilePath = `${os.tmpdir()}/${fileName}.pdf`;
+      console.log('parsePdfWithPdf2Json - Using os.tmpdir() for temporary files:', os.tmpdir());
+    }
     
     // Write the buffer to a temporary file
     await fs.promises.writeFile(tempFilePath, buffer);
@@ -120,9 +133,12 @@ async function parsePdfWithPdf2Json(buffer: Buffer): Promise<string> {
     
     // Clean up the temporary file
     try {
+      // Check if the file exists before trying to delete it
+      await fs.promises.access(tempFilePath, fs.constants.F_OK);
       await fs.promises.unlink(tempFilePath);
       console.log(`parsePdfWithPdf2Json - Removed temporary file: ${tempFilePath}`);
     } catch (unlinkError) {
+      // If the file doesn't exist or can't be deleted, just log a warning
       console.warn(`parsePdfWithPdf2Json - Failed to remove temporary file: ${tempFilePath}`, unlinkError);
     }
     
