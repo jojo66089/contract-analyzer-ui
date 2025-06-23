@@ -8,6 +8,11 @@ import { getSessionId } from '@/lib/utils/session';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
+// Ensure HF_TOKEN is properly formatted
+const HF_TOKEN = process.env.HF_TOKEN?.trim();
+// Make sure token doesn't have quotes or extra spaces
+const cleanHfToken = HF_TOKEN ? HF_TOKEN.replace(/^["']|["']$/g, '').trim() : undefined;
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -121,19 +126,41 @@ async function analyzeClause(clauseText: string) {
       ? `https://${process.env.VERCEL_URL}` 
       : process.env.NEXTAUTH_URL || 'http://localhost:3000';
     
+    // Add authentication headers if HF_TOKEN is available
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    if (cleanHfToken) {
+      // Ensure proper Bearer token format
+      headers["Authorization"] = cleanHfToken.startsWith('Bearer ') ? cleanHfToken : `Bearer ${cleanHfToken}`;
+    }
+    
     const response = await fetch(`${baseUrl}/api/llm`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         clauseText: clauseText
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      try {
+        // Try to parse as JSON first
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      } catch (jsonError) {
+        // If not JSON, try to get text
+        const errorText = await response.text().catch(() => 'Unknown error');
+        
+        // Check if it's an HTML response
+        if (errorText.includes('<!doctype html>') || errorText.includes('<html')) {
+          console.error('LLM API returned HTML instead of JSON - likely authentication issue');
+          throw new Error(`Authentication error (${response.status}): Please check API token validity`);
+        }
+        
+        throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 100)}`);
+      }
     }
 
     const result = await response.json();

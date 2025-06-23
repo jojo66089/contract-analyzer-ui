@@ -4,7 +4,8 @@ import { Clause } from '../types';
  * Intelligently splits contract text into clauses using LLM analysis
  * This provides much better clause separation than keyword-based approaches
  */
-export async function splitClausesWithLLM(contractText: string): Promise<Clause[]> {
+export async function splitClausesWithLLM(contractText: string, retryCount = 0): Promise<Clause[]> {
+  const MAX_RETRIES = 2;
   console.log('splitClausesWithLLM - Starting with text length:', contractText.length);
   
   if (!contractText || contractText.trim().length < 50) {
@@ -31,11 +32,24 @@ export async function splitClausesWithLLM(contractText: string): Promise<Clause[
     
     let response;
     try {
+      // Get HF_TOKEN if available
+      const HF_TOKEN = process.env.HF_TOKEN?.trim();
+      // Make sure token doesn't have quotes or extra spaces
+      const cleanHfToken = HF_TOKEN ? HF_TOKEN.replace(/^["']|["']$/g, '').trim() : undefined;
+      
+      // Add authentication headers if HF_TOKEN is available
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (cleanHfToken) {
+        // Ensure proper Bearer token format
+        headers["Authorization"] = cleanHfToken.startsWith('Bearer ') ? cleanHfToken : `Bearer ${cleanHfToken}`;
+      }
+      
       response = await fetch(`${baseUrl}/api/llm/split-clauses`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           contractText: contractText.trim()
         }),
@@ -47,6 +61,31 @@ export async function splitClausesWithLLM(contractText: string): Promise<Clause[
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'No error details');
         console.error(`splitClausesWithLLM - LLM API error: ${response.status}, details: ${errorText}`);
+        
+        // Check if it's an HTML response (authentication issue)
+        if (errorText.includes('<!doctype html>') || errorText.includes('<html')) {
+          console.error('splitClausesWithLLM - Authentication error detected (HTML response)');
+          
+          // Retry on authentication errors
+          if (retryCount < MAX_RETRIES) {
+            console.log(`Authentication error, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return splitClausesWithLLM(contractText, retryCount + 1);
+          }
+          
+          throw new Error(`LLM API authentication error: ${response.status}`);
+        }
+        
+        // Try to parse as JSON error
+        try {
+          const jsonError = JSON.parse(errorText);
+          if (jsonError.error) {
+            throw new Error(`LLM API error: ${jsonError.error}`);
+          }
+        } catch (parseError) {
+          // Not JSON, continue with generic error
+        }
+        
         throw new Error(`LLM API error: ${response.status}`);
       }
     } catch (error) {

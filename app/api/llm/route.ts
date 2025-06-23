@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 // Configuration for different deployment options
 const USE_GRADIO_SPACE = process.env.USE_GRADIO_SPACE === 'true';
 const GRADIO_SPACE_URL = process.env.GRADIO_SPACE_URL || "http://127.0.0.1:7860";
-const HF_TOKEN = process.env.HF_TOKEN;
+// Ensure HF_TOKEN is properly formatted
+const HF_TOKEN = process.env.HF_TOKEN?.trim();
+// Make sure token doesn't have quotes or extra spaces
+const cleanHfToken = HF_TOKEN ? HF_TOKEN.replace(/^["']|["']$/g, '').trim() : undefined;
 const HF_MODEL_ID = process.env.HF_MODEL_ID || "jojo6608/LegalQwen14B";
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -69,11 +72,22 @@ async function analyzeWithGradioSpace(clauseText: string, retryCount = 0): Promi
     console.log(`Calling Gradio Space API (attempt ${retryCount + 1})`);
     
     // Call your Gradio Space's API endpoint using the correct Gradio API format
+    // Add authentication headers if HF_TOKEN is available
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    
+    if (cleanHfToken) {
+      // Ensure proper Bearer token format
+      headers["Authorization"] = cleanHfToken.startsWith('Bearer ') ? cleanHfToken : `Bearer ${cleanHfToken}`;
+      console.log(`Using Authorization header: Bearer ${cleanHfToken.substring(0, 5)}...`);
+    } else {
+      console.warn('No HF_TOKEN provided for authentication');
+    }
+    
     const callResponse = await fetch(`${GRADIO_SPACE_URL}/gradio_api/call/predict`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         data: [clauseText],
         fn_index: 0
@@ -82,10 +96,34 @@ async function analyzeWithGradioSpace(clauseText: string, retryCount = 0): Promi
 
     if (!callResponse.ok) {
       const status = callResponse.status;
-      const errorText = await callResponse.text();
+      const errorText = await callResponse.text().catch(() => 'No error details');
+      
+      // Check if it's an HTML response (authentication issue)
+      if (errorText.includes('<!doctype html>') || errorText.includes('<html')) {
+        console.error('Gradio Space error: Authentication required');
+        
+        // Check for specific authentication issues
+        if (status === 401) {
+          console.error('Authentication failed: Invalid or expired token');
+          // Try to extract more info from HTML if possible
+          const authErrorMatch = errorText.match(/Authentication\s+(failed|error)[^<]*/i);
+          if (authErrorMatch) {
+            console.error(`Auth details: ${authErrorMatch[0].trim()}`);
+          }
+          
+          // Handle authentication issues with retry logic
+          if (retryCount < 2) {
+            console.log(`Authentication failed (401), retrying (${retryCount + 1}/2)...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return analyzeWithGradioSpace(clauseText, retryCount + 1);
+          }
+        }
+        
+        throw new Error(`Gradio Space authentication error (${status}): Please check HF_TOKEN validity`);
+      }
       
       // Handle space cold start or loading (503 or 502 errors)
-      if ((status === 503 || status === 502) && retryCount < maxRetries) {
+      if ((status === 503 || status === 502 || status === 504) && retryCount < maxRetries) {
         const backoffTime = initialBackoff * Math.pow(backoffFactor, retryCount);
         console.log(`Gradio Space not ready (${status}), retrying in ${backoffTime}ms (retry ${retryCount + 1}/${maxRetries})`);
         
@@ -106,9 +144,10 @@ async function analyzeWithGradioSpace(clauseText: string, retryCount = 0): Promi
     // Get the result using the event ID
     const response = await fetch(`${GRADIO_SPACE_URL}/gradio_api/call/predict/${eventId}`, {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: cleanHfToken ? { 
+        "Authorization": cleanHfToken.startsWith('Bearer ') ? cleanHfToken : `Bearer ${cleanHfToken}`,
+        "Content-Type": "application/json"
+      } : { "Content-Type": "application/json" },
     });
 
     if (!response.ok) {
@@ -218,10 +257,13 @@ Clause: ${clauseText}
 
 Analysis:`;
 
+    const authToken = cleanHfToken?.startsWith('Bearer ') ? cleanHfToken : `Bearer ${cleanHfToken}`;
+    console.log(`Using HF token: ${cleanHfToken ? cleanHfToken.substring(0, 5) + '...' : 'undefined'}`);
+    
     const response = await fetch(`https://api-inference.huggingface.co/models/${HF_MODEL_ID}`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${HF_TOKEN}`,
+        "Authorization": authToken,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
