@@ -111,24 +111,40 @@ async function parsePdfWithPdf2Json(buffer: Buffer): Promise<string> {
     // Parse the PDF file
     let parsedText = '';
     
-    // Set up error handler
-    pdfParser.on("pdfParser_dataError", (errData: any) => {
-      console.error('parsePdfWithPdf2Json - Error parsing PDF:', errData.parserError);
-      throw new Error(`PDF parsing error: ${errData.parserError}`);
-    });
-    
-    // Wait for the parser to complete
+    // Wait for the parser to complete with proper error handling
     await new Promise<void>((resolve, reject) => {
+      // Set up data ready handler
       pdfParser.on("pdfParser_dataReady", () => {
-        parsedText = (pdfParser as any).getRawTextContent();
-        console.log(`parsePdfWithPdf2Json - Successfully extracted ${parsedText.length} characters`);
+        try {
+          parsedText = (pdfParser as any).getRawTextContent();
+          console.log(`parsePdfWithPdf2Json - Successfully extracted ${parsedText.length} characters`);
+          resolve();
+        } catch (contentError) {
+          console.error('parsePdfWithPdf2Json - Error extracting text content:', contentError);
+          // Don't reject, just return empty text
+          parsedText = '';
+          resolve();
+        }
+      });
+      
+      // Set up error handler that doesn't throw (prevents Lambda crash)
+      pdfParser.on("pdfParser_dataError", (errData: any) => {
+        const errorMessage = errData?.parserError || 'Unknown PDF parsing error';
+        console.error('parsePdfWithPdf2Json - Error parsing PDF:', errorMessage);
+        // Don't reject, just return empty text
+        parsedText = '';
         resolve();
       });
       
-      pdfParser.on("pdfParser_dataError", reject);
-      
-      // Load the PDF file
-      pdfParser.loadPDF(tempFilePath);
+      // Load the PDF file with try-catch to prevent uncaught exceptions
+      try {
+        pdfParser.loadPDF(tempFilePath);
+      } catch (loadError) {
+        console.error('parsePdfWithPdf2Json - Error loading PDF:', loadError);
+        // Don't reject, just return empty text
+        parsedText = '';
+        resolve();
+      }
     });
     
     // Clean up the temporary file
@@ -388,8 +404,11 @@ async function parsePdf(buffer: Buffer): Promise<string> {
     if (pdf2jsonResult && pdf2jsonResult.length > 50) {
       console.log('parsePdf - pdf2json method successful');
       return pdf2jsonResult;
+    } else {
+      console.log('parsePdf - pdf2json returned insufficient text, trying other methods');
     }
   } catch (pdf2jsonError) {
+    // Log but don't rethrow - we'll try other methods
     console.warn('parsePdf - pdf2json method failed:', pdf2jsonError);
   }
   

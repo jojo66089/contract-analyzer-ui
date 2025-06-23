@@ -10,7 +10,18 @@ export const runtime = 'nodejs';        // Force Node.js runtime
 export const dynamic = 'force-dynamic';  // Skip static optimization
 
 export async function POST(request: NextRequest) {
+  // Add a top-level try-catch to prevent Lambda crashes
   try {
+    // Set a global timeout for the entire function
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Request timed out after 28 seconds'));
+      }, 28000); // Lambda timeout is 30s, we use 28s to allow for clean response
+    });
+    
+    // Create a promise for the actual handler
+    const handlerPromise = (async () => {
+      try {
     console.log('Upload Route - Request received');
     
     const sessionId = getSessionId(request);
@@ -40,7 +51,26 @@ export async function POST(request: NextRequest) {
     console.log('Upload Route - Parsing file with proper text extraction');
     let text: string;
     try {
-      text = await parseFile(buffer, file.type);
+      // Wrap the parseFile call in a timeout to prevent hanging
+      const parseWithTimeout = async () => {
+        return new Promise<string>(async (resolve, reject) => {
+          // Set a timeout for the parsing operation (25 seconds for Lambda)
+          const timeoutId = setTimeout(() => {
+            reject(new Error('PDF parsing timed out after 25 seconds'));
+          }, 25000);
+          
+          try {
+            const result = await parseFile(buffer, file.type);
+            clearTimeout(timeoutId);
+            resolve(result);
+          } catch (error) {
+            clearTimeout(timeoutId);
+            reject(error);
+          }
+        });
+      };
+      
+      text = await parseWithTimeout();
       console.log('Upload Route - Successfully extracted text, length:', text.length);
       
       // Basic validation
@@ -50,10 +80,11 @@ export async function POST(request: NextRequest) {
     } catch (parseError) {
       console.error('Upload Route - Failed to parse file:', parseError);
       
-      if (file.type === 'application/pdf') {
+      if (file.type === 'application/pdf' || file.type.includes('pdf')) {
         // For PDFs, return a proper error with helpful suggestions
         const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
         
+        // Return a 400 status with helpful error message
         return NextResponse.json({ 
           error: 'Failed to extract text from PDF',
           details: errorMessage,
@@ -62,7 +93,7 @@ export async function POST(request: NextRequest) {
             'Try converting scanned PDFs to text-based PDFs using OCR',
             'Check if the PDF contains actual text (not just images)',
             'Try a different PDF file format or version',
-            'Contact support if the issue persists'
+            'Some PDFs with complex formatting may not be compatible'
           ]
         }, { status: 400 });
       } else {
@@ -178,10 +209,25 @@ export async function POST(request: NextRequest) {
     
     console.log('Upload Route - Returning success response');
     return res;
-  } catch (err: any) {
-    console.error('Upload Route - Error:', err);
+      } catch (err: any) {
+        console.error('Upload Route - Error in handler:', err);
+        return NextResponse.json(
+          { error: 'Internal server error', details: err?.message ?? String(err) },
+          { status: 500 }
+        );
+      }
+    })();
+    
+    // Race the handler against the timeout
+    return await Promise.race([handlerPromise, timeoutPromise]);
+  } catch (outerError: any) {
+    console.error('Upload Route - Fatal error:', outerError);
     return NextResponse.json(
-      { error: 'Internal server error', details: err?.message ?? String(err) },
+      { 
+        error: 'Request processing failed', 
+        details: outerError?.message ?? String(outerError),
+        suggestion: 'Please try again with a smaller or simpler document'
+      },
       { status: 500 }
     );
   }
