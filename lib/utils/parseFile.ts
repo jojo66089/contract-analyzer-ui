@@ -309,7 +309,7 @@ function parsePdfFallback(buffer: Buffer): string {
     // Extract text between stream markers
     const streamRegex = /stream\s*([\s\S]*?)\s*endstream/g;
     let extractedText = '';
-    let match;
+    let match: RegExpExecArray | null;
     
     while ((match = streamRegex.exec(text)) !== null) {
       const streamContent = match[1];
@@ -365,7 +365,7 @@ function parsePdfEnhancedFallback(buffer: Buffer): string {
     try {
       console.log('parsePdfEnhancedFallback - Extracting text from BT/ET markers');
       const textObjectRegex = /BT\s*([\s\S]*?)\s*ET/g;
-      let match;
+      let match: RegExpExecArray | null;
       let matchCount = 0;
       
       // Set a reasonable limit for regex operations in serverless environment
@@ -379,7 +379,7 @@ function parsePdfEnhancedFallback(buffer: Buffer): string {
         const tjRegex = /\((.*?)\)\s*Tj/g;
         const tjArrayRegex = /\[(.*?)\]\s*TJ/g;
         
-        let tjMatch;
+        let tjMatch: RegExpExecArray | null;
         while ((tjMatch = tjRegex.exec(textObject)) !== null) {
           const textContent = tjMatch[1];
           if (textContent && textContent.length > 0) {
@@ -391,7 +391,7 @@ function parsePdfEnhancedFallback(buffer: Buffer): string {
           const arrayContent = tjMatch[1];
           // Extract strings from array format
           const stringRegex = /\((.*?)\)/g;
-          let stringMatch;
+          let stringMatch: RegExpExecArray | null;
           while ((stringMatch = stringRegex.exec(arrayContent)) !== null) {
             const textContent = stringMatch[1];
             if (textContent && textContent.length > 0) {
@@ -410,6 +410,7 @@ function parsePdfEnhancedFallback(buffer: Buffer): string {
     if (extractedText.length < 100) {
       // Extract any parenthesized text that might be content
       const parenthesizedRegex = /\(([^)]{3,})\)/g;
+      let match: RegExpExecArray | null;
       while ((match = parenthesizedRegex.exec(text)) !== null) {
         const content = match[1];
         // Filter out PDF commands and keep readable text
@@ -422,6 +423,7 @@ function parsePdfEnhancedFallback(buffer: Buffer): string {
     // Method 3: Extract from stream content with better filtering
     if (extractedText.length < 100) {
       const streamRegex = /stream\s*([\s\S]*?)\s*endstream/g;
+      let match: RegExpExecArray | null;
       while ((match = streamRegex.exec(text)) !== null) {
         const streamContent = match[1];
         // Extract readable characters and common words
