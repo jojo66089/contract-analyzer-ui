@@ -51,10 +51,11 @@ export async function POST(req: NextRequest) {
           'Content-Disposition': `attachment; filename="${(contract.name || 'contract').replace(/\.[^/.]+$/, "")}_analysis_report.pdf"`,
         },
       });
-    } catch (renderError) {
-      console.error('Error in PDF rendering process:', renderError);
+    } catch (error) {
+      console.error('Error in PDF rendering process:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return NextResponse.json(
-        { error: `PDF rendering failed: ${renderError.message}` },
+        { error: `PDF rendering failed: ${errorMessage}` },
         { status: 500 }
       );
     }
