@@ -1,5 +1,14 @@
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
+
+// Register fonts to ensure they're available
+Font.register({
+  family: 'Helvetica',
+  fonts: [
+    { src: 'https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf', fontWeight: 'normal' },
+    { src: 'https://fonts.gstatic.com/s/roboto/v20/KFOlCnqEu92Fr1MmWUlfBBc9.ttf', fontWeight: 'bold' },
+  ],
+});
 import type { Analysis, Clause, SummaryInsights } from '@/lib/types';
 
 // Enhanced styles for better readability and spacing
