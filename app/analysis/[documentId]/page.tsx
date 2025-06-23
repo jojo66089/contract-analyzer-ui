@@ -388,16 +388,18 @@ export default function AnalysisPage() {
     }
   }, [currentLanguage, selectedClause, analyses, translations, clauses, documentId]);
 
-  // Memoized download handler with fallback
+  // Memoized download handler using jsPDF
   const handleDownloadPDF = useCallback(async () => {
     try {
+      setIsDownloading(true);
       const currentSummary = getCurrentSummary();
       if (!currentSummary) {
         setError('Summary not available for download');
+        setIsDownloading(false);
         return;
       }
 
-      // Prepare the data payload for both endpoints
+      // Prepare the data payload for jsPDF endpoint
       const pdfData = {
         contract: documentDetails,
         summary: currentSummary,
@@ -406,50 +408,29 @@ export default function AnalysisPage() {
         language: currentLanguage
       };
       
-      try {
-        // First try the primary PDF generation endpoint
-        console.log('Attempting to download PDF using primary endpoint');
-        const response = await axios.post('/api/contract/download-pdf', pdfData, {
-          responseType: 'blob'
-        });
-        
-        // Create a blob URL and trigger download
-        const blob = new Blob([response.data], { type: 'application/pdf' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${documentDetails.name.replace(/\.[^/.]+$/, "")}_analysis_report.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        
-        console.log('PDF downloaded successfully using primary endpoint');
-      } catch (primaryError) {
-        console.error("Primary PDF endpoint failed, trying jsPDF fallback:", primaryError);
-        
-        // If primary endpoint fails, try the jsPDF-based fallback
-        console.log('Attempting to download PDF using jsPDF fallback');
-        const fallbackResponse = await axios.post('/api/contract/jspdf-pdf', pdfData, {
-          responseType: 'blob'
-        });
-        
-        // Create a blob URL and trigger download
-        const blob = new Blob([fallbackResponse.data], { type: 'application/pdf' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${documentDetails.name.replace(/\.[^/.]+$/, "")}_analysis_report.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        
-        console.log('PDF downloaded successfully using jsPDF fallback');
-      }
+      // Use the jsPDF generator
+      console.log('Attempting to download PDF using jsPDF');
+      const response = await axios.post('/api/contract/jspdf-pdf', pdfData, {
+        responseType: 'blob'
+      });
+      
+      // Create a blob URL and trigger download
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${documentDetails.name.replace(/\.[^/.]+$/, "")}_analysis_report.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      console.log('PDF downloaded successfully with jsPDF');
     } catch (err) {
-      console.error('Error downloading PDF (all methods failed):', err);
+      console.error('Error downloading PDF:', err);
       setError('Failed to download PDF report');
+    } finally {
+      setIsDownloading(false);
     }
   }, [getCurrentSummary, documentDetails, analyses, clauses, currentLanguage]);
 

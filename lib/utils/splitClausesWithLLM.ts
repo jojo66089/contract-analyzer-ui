@@ -23,19 +23,39 @@ export async function splitClausesWithLLM(contractText: string): Promise<Clause[
       ? `https://${process.env.VERCEL_URL}` 
       : process.env.NEXTAUTH_URL || 'http://localhost:3000';
     
-    const response = await fetch(`${baseUrl}/api/llm/split-clauses`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contractText: contractText.trim()
-      }),
-    });
+    console.log(`splitClausesWithLLM - Calling API at ${baseUrl}/api/llm/split-clauses`);
+    
+    // Add timeout to prevent hanging on API calls
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
+    let response;
+    try {
+      response = await fetch(`${baseUrl}/api/llm/split-clauses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contractText: contractText.trim()
+        }),
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      console.error('splitClausesWithLLM - LLM API error:', response.status);
-      throw new Error(`LLM API error: ${response.status}`);
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'No error details');
+        console.error(`splitClausesWithLLM - LLM API error: ${response.status}, details: ${errorText}`);
+        throw new Error(`LLM API error: ${response.status}`);
+      }
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        console.error('splitClausesWithLLM - API call timed out after 30 seconds');
+        throw new Error('LLM API timeout after 30 seconds');
+      }
+      throw fetchError;
     }
 
     const result = await response.json();

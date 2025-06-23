@@ -44,51 +44,221 @@ export async function POST(req: NextRequest) {
     doc.setLineWidth(0.5);
     doc.line(20, 32, 190, 32);
     
-    // Executive Summary
+    // Summary Insights Header
     doc.setFontSize(16);
     doc.setTextColor(44, 62, 80); // #2c3e50
-    doc.text('Executive Summary', 20, 42);
+    doc.text('Summary Insights', 20, 42);
     
-    // Summary overview
+    let yPosition = 50;
+    
+    // Overall Risk Summary
+    doc.setFontSize(14);
+    doc.setTextColor(231, 76, 60); // Red color for risk
+    doc.text('Overall Risk Summary', 20, yPosition);
+    yPosition += 8;
+    
     doc.setFontSize(10);
     doc.setTextColor(0, 0, 0);
-    const summaryText = summary.overview || 'No summary available.';
-    const splitSummary = doc.splitTextToSize(summaryText, 170);
-    doc.text(splitSummary, 20, 50);
+    const riskSummaryText = summary.overallRisk || 'This contract contains moderate legal risks requiring careful attention.';
+    const splitRiskSummary = doc.splitTextToSize(riskSummaryText, 170);
+    doc.text(splitRiskSummary, 20, yPosition);
+    yPosition += splitRiskSummary.length * 5 + 5;
     
-    let yPosition = 50 + (splitSummary.length * 5);
-    
-    // Risk level
-    if (summary.riskLevel) {
+    // Risk Score
+    if (summary.riskScore !== undefined) {
       doc.setFontSize(10);
-      doc.text('Overall Risk Level:', 20, yPosition + 10);
-      
-      // Set color based on risk level
-      if (summary.riskLevel.toLowerCase() === 'high') {
-        doc.setTextColor(231, 76, 60); // #e74c3c
-      } else if (summary.riskLevel.toLowerCase() === 'medium') {
-        doc.setTextColor(243, 156, 18); // #f39c12
-      } else {
-        doc.setTextColor(39, 174, 96); // #27ae60
-      }
-      
-      doc.text(summary.riskLevel, 60, yPosition + 10);
-      doc.setTextColor(0, 0, 0); // Reset text color
-      yPosition += 15;
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Risk Score: ${summary.riskScore}/10`, 20, yPosition);
+      yPosition += 10;
     }
     
-    // Key findings
-    if (summary.keyFindings && summary.keyFindings.length > 0) {
-      doc.setFontSize(12);
-      doc.setTextColor(44, 62, 80); // #2c3e50
-      doc.text('Key Findings', 20, yPosition);
+    // Key Ambiguous Terms
+    if (summary.ambiguousTerms && summary.ambiguousTerms.length > 0) {
+      // Check if we need a new page
+      if (yPosition > 250) {
+        doc.addPage();
+        yPosition = 20;
+      }
+      
+      doc.setFontSize(14);
+      doc.setTextColor(243, 156, 18); // Yellow color for ambiguous
+      doc.text('Key Ambiguous Terms', 20, yPosition);
       yPosition += 8;
       
       doc.setFontSize(10);
       doc.setTextColor(0, 0, 0);
       
-      summary.keyFindings.forEach((finding: string, index: number) => {
-        const bulletPoint = `• ${finding}`;
+      summary.ambiguousTerms.forEach((term: string) => {
+        const bulletPoint = `• ${term}`;
+        const splitTerm = doc.splitTextToSize(bulletPoint, 170);
+        doc.text(splitTerm, 20, yPosition);
+        yPosition += splitTerm.length * 5;
+      });
+      
+      yPosition += 5;
+    }
+    
+    // Unfair/Problematic Clauses
+    if (summary.unfairClauses && summary.unfairClauses.length > 0) {
+      // Check if we need a new page
+      if (yPosition > 250) {
+        doc.addPage();
+        yPosition = 20;
+      }
+      
+      doc.setFontSize(14);
+      doc.setTextColor(231, 76, 60); // Red color for problematic
+      doc.text('Unfair/Problematic Clauses', 20, yPosition);
+      yPosition += 8;
+      
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      
+      summary.unfairClauses.forEach((clause: any) => {
+        const clauseId = clause.clauseId || 'unknown';
+        const description = clause.description || 'No description';
+        
+        doc.setFillColor(253, 237, 237); // Light red background
+        doc.rect(20, yPosition - 4, 170, 20, 'F');
+        
+        doc.setFontSize(10);
+        doc.setTextColor(231, 76, 60); // Red text
+        doc.text(`Clause ID: ${clauseId}`, 25, yPosition);
+        yPosition += 5;
+        
+        doc.setTextColor(0, 0, 0);
+        const splitDesc = doc.splitTextToSize(description, 160);
+        doc.text(splitDesc, 25, yPosition);
+        yPosition += splitDesc.length * 5 + 5;
+      });
+      
+      yPosition += 5;
+    }
+    
+    // Problematic Clauses with Citations
+    if (summary.problematicClauses && summary.problematicClauses.length > 0) {
+      // Check if we need a new page
+      if (yPosition > 250) {
+        doc.addPage();
+        yPosition = 20;
+      }
+      
+      doc.setFontSize(14);
+      doc.setTextColor(243, 156, 18); // Orange color for citations
+      doc.text('Problematic Clauses with Citations', 20, yPosition);
+      yPosition += 8;
+      
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      
+      summary.problematicClauses.forEach((clause: any) => {
+        const clauseId = clause.clauseId || 'unknown';
+        const title = clause.title || 'Untitled Clause';
+        const issues = clause.issues || [];
+        
+        doc.setFillColor(255, 243, 224); // Light orange background
+        doc.rect(20, yPosition - 4, 170, 8, 'F');
+        
+        doc.setFontSize(10);
+        doc.setTextColor(230, 126, 34); // Orange text
+        doc.text(`ID: ${clauseId}`, 25, yPosition);
+        yPosition += 6;
+        
+        doc.setFontSize(11);
+        doc.setTextColor(230, 126, 34); // Orange text
+        doc.text(title, 25, yPosition);
+        yPosition += 6;
+        
+        if (issues.length > 0) {
+          doc.setFontSize(9);
+          doc.setTextColor(0, 0, 0);
+          doc.text('Issues identified:', 25, yPosition);
+          yPosition += 4;
+          
+          issues.forEach((issue: string) => {
+            const bulletPoint = `• ${issue}`;
+            const splitIssue = doc.splitTextToSize(bulletPoint, 160);
+            doc.text(splitIssue, 30, yPosition);
+            yPosition += splitIssue.length * 4;
+          });
+        }
+        
+        yPosition += 8;
+      });
+      
+      yPosition += 5;
+    }
+    
+    // Missing Recommended Clauses
+    if (summary.missingClauses && summary.missingClauses.length > 0) {
+      // Check if we need a new page
+      if (yPosition > 250) {
+        doc.addPage();
+        yPosition = 20;
+      }
+      
+      doc.setFontSize(14);
+      doc.setTextColor(41, 128, 185); // Blue color for missing clauses
+      doc.text('Missing Recommended Clauses', 20, yPosition);
+      yPosition += 8;
+      
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      
+      summary.missingClauses.forEach((clause: string) => {
+        const bulletPoint = `+ ${clause}`;
+        const splitClause = doc.splitTextToSize(bulletPoint, 170);
+        doc.text(splitClause, 20, yPosition);
+        yPosition += splitClause.length * 5;
+      });
+      
+      yPosition += 5;
+    }
+    
+    // Actionable Suggestions
+    if (summary.actionableSuggestions && summary.actionableSuggestions.length > 0) {
+      // Check if we need a new page
+      if (yPosition > 250) {
+        doc.addPage();
+        yPosition = 20;
+      }
+      
+      doc.setFontSize(14);
+      doc.setTextColor(142, 68, 173); // Purple color for suggestions
+      doc.text('Actionable Suggestions', 20, yPosition);
+      yPosition += 8;
+      
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      
+      summary.actionableSuggestions.forEach((suggestion: string) => {
+        const bulletPoint = `→ ${suggestion}`;
+        const splitSuggestion = doc.splitTextToSize(bulletPoint, 170);
+        doc.text(splitSuggestion, 20, yPosition);
+        yPosition += splitSuggestion.length * 5;
+      });
+      
+      yPosition += 5;
+    }
+    
+    // Key Findings
+    if (summary.keyFindings && summary.keyFindings.length > 0) {
+      // Check if we need a new page
+      if (yPosition > 250) {
+        doc.addPage();
+        yPosition = 20;
+      }
+      
+      doc.setFontSize(14);
+      doc.setTextColor(39, 174, 96); // Green color for key findings
+      doc.text('Additional Key Findings', 20, yPosition);
+      yPosition += 8;
+      
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      
+      summary.keyFindings.forEach((finding: string) => {
+        const bulletPoint = `i ${finding}`;
         const splitFinding = doc.splitTextToSize(bulletPoint, 170);
         doc.text(splitFinding, 20, yPosition);
         yPosition += splitFinding.length * 5;

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const USE_GRADIO_SPACE = process.env.USE_GRADIO_SPACE === 'true';
 const GRADIO_SPACE_URL = process.env.GRADIO_SPACE_URL || "http://127.0.0.1:7860";
-const HF_TOKEN = process.env.HF_TOKEN;
+const HF_TOKEN = process.env.HF_TOKEN?.trim();
 const HF_MODEL_ID = process.env.HF_MODEL_ID || "jojo6608/LegalQwen14B";
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -32,6 +32,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
     
     if (HF_TOKEN) {
+      console.log(`HF_TOKEN is set (starts with: ${HF_TOKEN.substring(0, 5)}...)`);
       try {
         result = await splitClausesWithHuggingFace(contractText);
         console.log('Successfully split clauses with Hugging Face API');
@@ -39,6 +40,8 @@ export async function POST(req: NextRequest): Promise<Response> {
       } catch (hfError) {
         console.warn('Hugging Face clause splitting failed:', hfError);
       }
+    } else {
+      console.warn('HF_TOKEN is not set in environment variables');
     }
     
     // Return structured error if LLM methods fail
@@ -171,10 +174,15 @@ Return JSON array format:
 JSON Array:`;
 
   try {
+    console.log(`Using HF token: ${HF_TOKEN ? HF_TOKEN.substring(0, 5) + '...' : 'undefined'}`);
+    console.log(`Using HF model: ${HF_MODEL_ID}`);
+    
+    const authToken = HF_TOKEN?.startsWith('Bearer ') ? HF_TOKEN : `Bearer ${HF_TOKEN}`;
+    
     const response = await fetch(`https://api-inference.huggingface.co/models/${HF_MODEL_ID}`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${HF_TOKEN}`,
+        "Authorization": authToken,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -189,7 +197,9 @@ JSON Array:`;
     });
 
     if (!response.ok) {
-      throw new Error(`Hugging Face API error (${response.status})`);
+      const errorText = await response.text().catch(() => 'No error text');
+      console.error(`HF API error status: ${response.status}, message: ${errorText}`);
+      throw new Error(`Hugging Face API error (${response.status}): ${errorText}`);
     }
 
     const result = await response.json();

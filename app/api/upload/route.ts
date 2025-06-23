@@ -88,9 +88,15 @@ export async function POST(request: NextRequest) {
     console.log('Upload Route - Extracting clauses from contract text');
     let clauses;
     try {
-      // Always try LLM-based clause splitting first for better accuracy
+      // Try LLM-based clause splitting first for better accuracy, but handle failures gracefully
       console.log('Upload Route - Attempting enhanced LLM-based clause splitting');
       try {
+        // Check if the text is too long for efficient LLM processing
+        if (text.length > 50000) {
+          console.log('Upload Route - Text too long for LLM processing, using fallback directly');
+          throw new Error('Text too long for efficient LLM processing');
+        }
+        
         clauses = await splitClausesWithLLM(text);
         console.log(`Upload Route - Enhanced LLM extracted ${clauses.length} clauses successfully`);
         
@@ -101,6 +107,7 @@ export async function POST(request: NextRequest) {
         }
       } catch (llmError) {
         console.warn('Upload Route - LLM clause splitting failed, using enhanced fallback method:', llmError);
+        // Use the fallback clause splitting method which is more reliable
         clauses = splitClauses(text);
         console.log(`Upload Route - Enhanced fallback method extracted ${clauses.length} clauses`);
       }

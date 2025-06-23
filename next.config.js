@@ -110,6 +110,10 @@ const nextConfig = {
   
   env: {
     CUSTOM_KEY: process.env.CUSTOM_KEY,
+    HF_TOKEN: process.env.HF_TOKEN,
+    HF_MODEL_ID: process.env.HF_MODEL_ID,
+    USE_GRADIO_SPACE: process.env.USE_GRADIO_SPACE,
+    GRADIO_SPACE_URL: process.env.GRADIO_SPACE_URL,
   },
 }
 
