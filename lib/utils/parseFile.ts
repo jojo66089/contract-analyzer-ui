@@ -94,27 +94,15 @@ async function parsePdfWithPdfjs(buffer: Buffer): Promise<string> {
       console.log('parsePdfWithPdfjs - Using Vercel-specific configuration');
     }
     
-    // Dynamic import with timeout to prevent hanging
+    // Use a direct import approach that works with Vercel
     console.log('parsePdfWithPdfjs - Attempting to import PDF.js');
     
-    // Use a simpler approach with a single import path
-    let pdfjsLibModule: any;
-    try {
-      // First try the ESM path
-      pdfjsLibModule = await import('pdfjs-dist');
-      console.log('parsePdfWithPdfjs - Successfully imported PDF.js from default path');
-    } catch (error) {
-      console.log('parsePdfWithPdfjs - Default import failed, trying legacy path:', error);
-      
-      try {
-        // Try legacy path as fallback
-        pdfjsLibModule = await import('pdfjs-dist/legacy/build/pdf.js');
-        console.log('parsePdfWithPdfjs - Successfully imported PDF.js from legacy path');
-      } catch (legacyError) {
-        console.error('parsePdfWithPdfjs - All import attempts failed:', legacyError);
+    // Import PDF.js directly - this is the most reliable approach for Vercel
+    const pdfjsLibModule = await import('pdfjs-dist')
+      .catch(error => {
+        console.error('parsePdfWithPdfjs - Failed to import PDF.js:', error);
         throw new Error('Failed to load PDF.js library');
-      }
-    }
+      });
     
     // Ensure we have a properly typed pdfjsLib
     const pdfjsLib = pdfjsLibModule as typeof import('pdfjs-dist');
@@ -498,23 +486,11 @@ async function parsePdf(buffer: Buffer): Promise<string> {
   const isServerless = process.env.VERCEL === '1';
   console.log('parsePdf - Running in serverless environment:', isServerless);
   
-  // In serverless environments (Vercel), use a different strategy
+  // In serverless environments (Vercel), skip PDF.js entirely to avoid import issues
   if (isServerless) {
-    console.log('parsePdf - Using Vercel-optimized parsing strategy');
+    console.log('parsePdf - Using Vercel-optimized parsing strategy (skipping PDF.js)');
     
-    // Method 1: Try PDF.js with enhanced Vercel configuration
-    try {
-      console.log('parsePdf - Trying PDF.js with Vercel optimizations first');
-      const pdfjsResult = await parsePdfWithPdfjs(buffer);
-      if (pdfjsResult && pdfjsResult.length > 50) {
-        console.log('parsePdf - PDF.js with Vercel optimizations successful');
-        return pdfjsResult;
-      }
-    } catch (pdfjsError) {
-      console.warn('parsePdf - PDF.js with Vercel optimizations failed:', pdfjsError);
-    }
-    
-    // Method 2: Try enhanced fallback parsing (most reliable for Vercel)
+    // Method 1: Try enhanced fallback parsing (most reliable for Vercel)
     try {
       console.log('parsePdf - Trying enhanced fallback parsing');
       const enhancedFallbackResult = parsePdfEnhancedFallback(buffer);
@@ -526,7 +502,7 @@ async function parsePdf(buffer: Buffer): Promise<string> {
       console.warn('parsePdf - Enhanced fallback method failed:', enhancedError);
     }
     
-    // Method 3: Try basic fallback parsing
+    // Method 2: Try basic fallback parsing
     try {
       console.log('parsePdf - Trying basic fallback parsing');
       const fallbackResult = parsePdfFallback(buffer);
@@ -538,7 +514,7 @@ async function parsePdf(buffer: Buffer): Promise<string> {
       console.warn('parsePdf - Basic fallback method failed:', fallbackError);
     }
     
-    // Method 4: Try pdf-parse as last resort (may not work in Vercel)
+    // Method 3: Try pdf-parse as last resort (may not work in Vercel)
     try {
       console.log('parsePdf - Trying pdf-parse as last resort');
       const pdfParseResult = await parsePdfWithPdfParse(buffer);
