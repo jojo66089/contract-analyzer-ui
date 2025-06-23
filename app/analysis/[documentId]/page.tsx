@@ -109,6 +109,7 @@ export default function AnalysisPage() {
   const [translations, setTranslations] = useState<Record<string, Record<string, Analysis>>>({})
   const [currentLanguage, setCurrentLanguage] = useState<"en" | "es" | "pt" | "zh">("en")
   const [isLoading, setIsLoading] = useState(true)
+  const [isDownloading, setIsDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [documentDetails, setDocumentDetails] = useState<DocumentDetails>({
@@ -566,11 +567,20 @@ export default function AnalysisPage() {
             
             <Button 
               onClick={handleDownloadPDF}
-              disabled={!allAnalysesReady}
+              disabled={!allAnalysesReady || isDownloading}
               className="flex items-center space-x-2"
             >
-              <Download className="h-4 w-4" />
-              <span>Download Report</span>
+              {isDownloading ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  <span>Generating...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4" />
+                  <span>Download Report</span>
+                </>
+              )}
             </Button>
           </div>
         </div>
