@@ -9,18 +9,18 @@ import { parseFile } from '@/lib/utils/parseFile';
 export const runtime = 'nodejs';        // Force Node.js runtime
 export const dynamic = 'force-dynamic';  // Skip static optimization
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<Response> {
   // Add a top-level try-catch to prevent Lambda crashes
   try {
     // Set a global timeout for the entire function
-    const timeoutPromise = new Promise((_, reject) => {
+    const timeoutPromise = new Promise<Response>((_, reject) => {
       setTimeout(() => {
         reject(new Error('Request timed out after 28 seconds'));
       }, 28000); // Lambda timeout is 30s, we use 28s to allow for clean response
     });
     
     // Create a promise for the actual handler
-    const handlerPromise = (async () => {
+    const handlerPromise = (async (): Promise<Response> => {
       try {
     console.log('Upload Route - Request received');
     
@@ -52,21 +52,24 @@ export async function POST(request: NextRequest) {
     let text: string;
     try {
       // Wrap the parseFile call in a timeout to prevent hanging
-      const parseWithTimeout = async () => {
-        return new Promise<string>(async (resolve, reject) => {
+      const parseWithTimeout = async (): Promise<string> => {
+        return new Promise<string>((resolve, reject) => {
           // Set a timeout for the parsing operation (25 seconds for Lambda)
           const timeoutId = setTimeout(() => {
             reject(new Error('PDF parsing timed out after 25 seconds'));
           }, 25000);
           
-          try {
-            const result = await parseFile(buffer, file.type);
-            clearTimeout(timeoutId);
-            resolve(result);
-          } catch (error) {
-            clearTimeout(timeoutId);
-            reject(error);
-          }
+          // Use an immediately invoked async function to handle the parsing
+          (async () => {
+            try {
+              const result = await parseFile(buffer, file.type);
+              clearTimeout(timeoutId);
+              resolve(result);
+            } catch (error) {
+              clearTimeout(timeoutId);
+              reject(error);
+            }
+          })();
         });
       };
       
@@ -219,7 +222,7 @@ export async function POST(request: NextRequest) {
     })();
     
     // Race the handler against the timeout
-    return await Promise.race([handlerPromise, timeoutPromise]);
+    return await Promise.race<Response>([handlerPromise, timeoutPromise]);
   } catch (outerError: any) {
     console.error('Upload Route - Fatal error:', outerError);
     return NextResponse.json(
