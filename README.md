@@ -1,6 +1,6 @@
 # Contract Analyzer UI
 
-A sophisticated legal-tech application built with Next.js 14+ that leverages AI to provide comprehensive contract analysis. The application enables users to upload legal documents (PDF/DOCX), automatically segment them into clauses, and receive detailed AI-powered analysis including risk assessment, ambiguity detection, and actionable recommendations.
+A  legal-tech application built with Next.js 14+ that leverages AI to provide comprehensive contract analysis. The application enables users to upload legal documents (PDF/DOCX), automatically segment them into clauses, and receive detailed AI-powered analysis including risk assessment, ambiguity detection, and actionable recommendations.
 
 ## Features
 
