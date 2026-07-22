@@ -6,7 +6,7 @@ The **Contract Analyzer UI** is a sophisticated legal-tech application built wit
 
 ## Technical Architecture
 
-### 🎯 Core Technology Stack
+###  Core Technology Stack
 
 #### Frontend Framework
 - **Next.js 14+** with App Router (React 19)
@@ -32,7 +32,7 @@ The **Contract Analyzer UI** is a sophisticated legal-tech application built wit
 - **Memoization patterns** for expensive computations
 - **Debouncing and throttling** for API optimization
 
-### 🏗️ Architectural Patterns
+### Architectural Patterns
 
 #### 1. **Modular Component Architecture**
 ```
@@ -77,7 +77,7 @@ interface SummaryInsights {
 }
 ```
 
-## 🚀 Key Technical Innovations
+##  Key Technical Innovations
 
 ### 1. **Real-Time Streaming Analysis**
 - **Server-Sent Events** for live analysis updates
@@ -131,7 +131,7 @@ const getCurrentSummary = useCallback((): SummaryInsights | null => {
 - Session management with automatic recovery
 ```
 
-## 📊 Data Architecture
+## Data Architecture
 
 ### Data Flow Pipeline
 1. **File Upload** → PDF/DOCX parsing → Text extraction
@@ -155,7 +155,7 @@ analysis:{sessionId}:{contractId}:{clauseId} {
 }
 ```
 
-## 🔧 Performance Optimizations Made
+## Performance Optimizations Made
 
 ### 1. **Frontend Optimizations**
 - **React.memo** for expensive components
@@ -196,7 +196,7 @@ analysis:{sessionId}:{contractId}:{clauseId} {
 - **Service health checks** and monitoring
 - **Data persistence** with Redis backup strategies
 
-## 📈 Scalability Considerations
+## Scalability Considerations
 
 ### Current Limitations
 - **Session-based storage** (Redis) - limited persistence
@@ -211,7 +211,7 @@ analysis:{sessionId}:{contractId}:{clauseId} {
 4. **Load Balancing** - Multiple API instances
 5. **Caching Layer** - Redis Cluster for distributed caching
 
-## 🎨 UI/UX Architecture
+## UI/UX Architecture
 
 ### Design System
 - **Shadcn/ui** component library for consistency
@@ -239,7 +239,7 @@ analysis:{sessionId}:{contractId}:{clauseId} {
 3. **Integration APIs** - Connect with legal software
 4. **Advanced Analytics** - Contract trend analysis
 
-## 📊 Performance Metrics
+##  Performance Metrics
 
 ### Current Performance
 - **File Upload**: ~2-5 seconds for typical contracts
@@ -253,7 +253,7 @@ analysis:{sessionId}:{contractId}:{clauseId} {
 - **25% improvement** in perceived performance with streaming
 - **40% better** memory efficiency with cleanup optimization
 
-## 🛠️ Development & Deployment
+## Development & Deployment
 
 ### Development Workflow
 - **TypeScript** for type safety and developer experience
@@ -267,7 +267,7 @@ analysis:{sessionId}:{contractId}:{clauseId} {
 - **CDN Integration** for global performance
 - **Monitoring** with real-time error tracking
 
-## 📋 Technical Debt & Maintenance
+## Technical Debt & Maintenance
 
 ### Areas for Improvement
 1. **Test Coverage** - Unit and integration tests needed
